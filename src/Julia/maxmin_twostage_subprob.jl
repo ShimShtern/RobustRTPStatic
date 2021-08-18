@@ -17,9 +17,8 @@ using FileIO, JLD2
 VIOL_EPS = 1e-4
 DBARNZTH = 1e-3
 ZNZTH = 1e-3
-UNIFORM_GAMMA = 0.04
 BIG_OBJ = 1e8
-
+UNIFORM_GAMMA = true
 
 LAZY_CONS_PERORGAN_TH = 5e4
 LAZY_CONS_PERORGAN_INIT_NUM = 400
@@ -57,7 +56,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
 
     optimizer = Gurobi.Optimizer #SCS.Optimizer
     m = Model(optimizer)
-    set_optimizer_attribute(m, "OutputFlag", 0)
+    set_optimizer_attribute(m, "OutputFlag", 1)
     set_optimizer_attribute(m, "OptimalityTol", 1e-2)
     ptvn = length(_V[1])
     @variable(m,g)
@@ -114,7 +113,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
         #@constraint(m,dos_vol[k=2:length(_V)],sum(z[i] for i in _V[k]) <= dvrhs[k] )
         dbar = m[:dbar]
         @show length(dbar)
-        @objective(m, Max, g-β*sum(dbar[i]^2 for k=2:length(_V),i in _V[k]))
+        @objective(m, Max, g-β*sum(dbar[i] for k=2:length(_V),i in _V[k]))
     else
         @objective(m, Max, g)
     end
@@ -125,7 +124,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
 end
 
 
-function computeProjections(γ, phi_under, phi_bar, uniform_gamma=0)
+function computeProjections(γ, phi_under, phi_bar, uniform_gamma = 0)
     n, nn = size(γ)
     g = SimpleWeightedGraph(γ) #n,1:n,1:n,
     println("Started all-pairs-shortest path computations......................")
@@ -135,7 +134,7 @@ function computeProjections(γ, phi_under, phi_bar, uniform_gamma=0)
         dists = fws.dists
     else
         for i=1:n
-            dists[i,:]=uniform_gamma*gdistances(g,i)#; sort_alg=RadixSort)
+            dists[i,:]=gdistances(g,i)#; sort_alg=RadixSort)
         end
     end
     ###################################### save dists for debug
@@ -245,7 +244,7 @@ function addMostViolated!(m, n, x, t, β, doseVol = false)
                 end
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
                 obj = objective_function(m, QuadExpr)
-                @objective(m, Max, obj-β*sum(dbar[i]^2 for i in indicesToAdd))
+                @objective(m, Max, obj-β*sum(dbar[i] for i in indicesToAdd))
             else
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
             end
@@ -309,7 +308,7 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_bar, L=1,bLOAD_FROM_FILE=false)
+function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
     ptvN, nn = size(γ)
     phi_u_n=[]
     phi_b_n=[]
@@ -317,7 +316,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_b
     if bLOAD_FROM_FILE
         phi_u_n, phi_b_n, dists = FileIO.load("Projection.jld2","phi_u_n","phi_b_n","dists")
     else
-        phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, UNIFORM_GAMMA)
+        phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, gamma_const)
         FileIO.save("Projection.jld2","phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
     end
     m = initModel(Din,firstIndices,t,dvrhs,β,phi_u_n)
@@ -397,7 +396,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_b
     return m
 end
 
-function printDoseVolume(m, doseVol = false)
+function printDoseVolume(m, doseVol = false, verbose = false)
     conicForm = false
 
     zVar = variable_by_name(m, "z")
@@ -410,10 +409,14 @@ function printDoseVolume(m, doseVol = false)
 
     x = value.(xVar)
     println("Min PTV bio dose, g=",value(gVar))
-    dose = _D[_N[k+1],:]*x
 
     for k=1:length(_V)
-        println("Organ: ", k, " Max (phys) dose ", maximum(dose[_V[k]]))
+        dose = _D[[_V[k];_N[k]],:]*x
+        if !verbose && k > 1
+            break
+        elseif !isempty(dose)
+            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose))
+        end
     end
 
     if conicForm
