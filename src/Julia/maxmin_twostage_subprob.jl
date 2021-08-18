@@ -8,6 +8,7 @@ using LinearAlgebra
 using LightGraphs, SimpleWeightedGraphs
 using DataStructures
 using SortingAlgorithms
+using BenchmarkTools
 import LightGraphs.Parallel
 using FileIO, JLD2
 using Printf
@@ -16,19 +17,18 @@ using Printf
 VIOL_EPS = 1e-4
 DBARNZTH = 1e-3
 ZNZTH = 1e-3
-UNIFORM_GAMMA = 1#0.02
 BIG_OBJ = 1e8
-
+UNIFORM_GAMMA = true
 
 LAZY_CONS_PERORGAN_TH = 5e4
 LAZY_CONS_PERORGAN_INIT_NUM = 400
-LAZY_CONS_PERORGAN_NUM_PER_ITER = 200
+LAZY_CONS_PERORGAN_NUM_PER_ITER = 100
 MAX_LAZY_CON_IT = 200
 
 LAZYCONS_TIGHT_TH = 0.2
 MAX_VIOL_RATIO_TH = 0.2
 
-MAX_V_CONS = 20 #can be set to infinity
+MAX_V_CONS = 10 #can be set to infinity
 MAX_VIOL_EPS = 1e-4
 MAX_VIOL_EPS_INIT = 10
 
@@ -36,6 +36,7 @@ global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
 global _V
 global _N # voxels by organ not loaded into optimization
+
 
 export initModel, solveModel!, robustCuttingPlaneAlg, addMostViolated!
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
@@ -55,7 +56,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
 
     optimizer = Gurobi.Optimizer #SCS.Optimizer
     m = Model(optimizer)
-    set_optimizer_attribute(m, "OutputFlag", 0)
+    set_optimizer_attribute(m, "OutputFlag", 1)
     set_optimizer_attribute(m, "OptimalityTol", 1e-2)
     ptvn = length(_V[1])
     @variable(m,g)
@@ -73,42 +74,46 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
             xinit = 100/nb*ones(nb,1)
         end
 
+        if β>0
+            dbar = m[:dbar] = Dict()
+        end
+
         firstIndices = [firstIndices; n+1]
         for k = 1:length(firstIndices)-1
             if firstIndices[k+1]-firstIndices[k] <= LAZY_CONS_PERORGAN_TH
                 _V[k+1] =  firstIndices[k]:firstIndices[k+1]-1
+                if β>0
+                    for i in _V[k+1]
+                        dbar[i] = @variable(m,lower_bound=0)
+                    end
+                    @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                else
+                    @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) <= t[k])
+                end
             else
                 _N[k+1] = firstIndices[k]:firstIndices[k+1]-1
             end
         end
-        addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t)
+
+        addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t, β, (β>0))
 
     #println("************ debug **************")
     #println(Din.nzval)
     #println(findnz(Din))
     #println("*********************")
 
-    #ptvn = firstIndices[1]-1
-    #@assert (n == ptvn+htn)
-    # convert sparse matrix to JuMP constraint -- go over nonzero values using .nzval and .nzind
-    #@show(cons_ptv[1])
-    #firstIndices = [firstIndices; n+1]
+    @show length(_V)
+
     if β > 0 # penalty coefficient of DV related term in objective
-        @variable(m,dbar[k=2:length(_V),i in _V[k]]>=0)
-        @variable(m,u[k=2:length(_V),i in _V[k]]>=0)
-        @variable(m,0<=z[k=2:length(_V),i in _V[k]]<=1)
-        @constraint(m,cons_oar[k=2:length(_V),i in _V[k]], Din[i,:].nzval'*x[Din[i,:].nzind]-dbar[i] <= t[k])
-        @constraint(m,cons_ind[k=2:length(_V),i in _V[k]], dbar[i]^2 <= u[i]*z[i])
-    else # if beta coefficient is 0
-        @show length(_V)
-
-        ##@constraint(m,cons_oar[k=2:length(_V),i in _V[k]], Din[i,:].nzval'*x[Din[i,:].nzind] <= t[k])
-        #@constraint(m,cons_oar[k=2:length(_V),i in _V[k]], sum( Din[i,j]*x[j] for j in Din[i,:].nzind) <= t[k-1])
-
-    end
-    if β > 0
-        @constraint(m,dos_vol[k=2:length(_V)],sum(z[i] for i in _V[k]) <= dvrhs[k] )
-        @objective(m, Max, g-β*sum(u[i] for k=2:length(_V),i in _V[k]))
+        #@variable(m,dbar[k=2:length(_V),i in _V[k]]>=0)
+        #@variable(m,u[k=2:length(_V),i in _V[k]]>=0)
+        #@variable(m,0<=z[k=2:length(_V),i in _V[k]]<=1)
+        #@constraint(m,cons_oar[k=2:length(_V),i in _V[k]], Din[i,:].nzval'*x[Din[i,:].nzind]-dbar[i] <= t[k-1])
+        #@constraint(m,cons_ind[k=2:length(_V),i in _V[k]], dbar[i]^2 <= u[i]*z[i])
+        #@constraint(m,dos_vol[k=2:length(_V)],sum(z[i] for i in _V[k]) <= dvrhs[k] )
+        dbar = m[:dbar]
+        @show length(dbar)
+        @objective(m, Max, g-β*sum(dbar[i] for k=2:length(_V),i in _V[k]))
     else
         @objective(m, Max, g)
     end
@@ -119,7 +124,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
 end
 
 
-function computeProjections(γ, phi_under, phi_bar, uniform_gamma=0)
+function computeProjections(γ, phi_under, phi_bar, uniform_gamma = 0)
     n, nn = size(γ)
     g = SimpleWeightedGraph(γ) #n,1:n,1:n,
     println("Started all-pairs-shortest path computations......................")
@@ -129,7 +134,7 @@ function computeProjections(γ, phi_under, phi_bar, uniform_gamma=0)
         dists = fws.dists
     else
         for i=1:n
-            dists[i,:]=uniform_gamma*gdistances(g,i)#; sort_alg=RadixSort)
+            dists[i,:]=gdistances(g,i)#; sort_alg=RadixSort)
         end
     end
     ###################################### save dists for debug
@@ -154,24 +159,19 @@ function computeProjections(γ, phi_under, phi_bar, uniform_gamma=0)
 end
 
 
-function solveModel!(m,firstIndices,g=[],x=[],dbar=[],u=[],z=[])
-    doseVol = false
-    zVar = variable_by_name(m, "z")
-    if zVar != nothing
-        doseVol = true
-    end
+function solveModel!(m,firstIndices,doseVol=false)
+    println("In solveModel!")
+    #if ~isempty(g)
+#        JuMP.set_start_value(m[:g],g)
+#        JuMP.set_start_value(m[:x],x)
+#        if doseVol
+#            JuMP.set_start_value(m[:dbar],dbar)
+#            JuMP.set_start_value(m[:u],u)
+#            JuMP.set_start_value(m[:z],z)
+#        end
+    #end
 
-    if ~isempty(g)
-        JuMP.set_start_value(m[:g],g)
-        JuMP.set_start_value(m[:x],x)
-        if doseVol
-            JuMP.set_start_value(m[:dbar],dbar)
-            JuMP.set_start_value(m[:u],u)
-            JuMP.set_start_value(m[:z],z)
-        end
-    end
-
-    optimize!(m)
+    @time optimize!(m)
 
     if termination_status(m) == MOI.OPTIMAL
         println("****************** Optimal Objective Function value: ", JuMP.objective_value(m))
@@ -188,30 +188,12 @@ function solveModel!(m,firstIndices,g=[],x=[],dbar=[],u=[],z=[])
         #cons = constraint_by_name(m,"cons_oar")
     #n = length(cons)
 
+    printDoseVolume(m,doseVol)
 
-    if doseVol
-        z = m[:z]
-        zz = value.(z)
-        dbar = m[:dbar]
-        dbarr = value.(dbar)
-        ptvN = length(dbarr)
-        oarIdx = firstIndices[1]-1
-        begIdx = 1
-        firstIndices = firstIndices[2:length(firstIndices)]
-        firstIndices = firstIndices.-firstIndices[1].+1
-        firstIndices = [firstIndices; ptvN]
-        for k=1:length(firstIndices)
-            endIdx = firstIndices[k]
-            oarDbar = dbarr[begIdx:endIdx]
-            oarZ = zz[begIdx:endIdx]
-            println("OAR k=", k, " Number of nonzero dbar: ", length(oarDbar[oarDbar.> DBARNZTH]), " Number of nonzero z: ",  length(oarZ[oarZ.> ZNZTH]) )
-            begIdx = endIdx+1
-        end
-    end
     return m
 end
 
-function addMostViolated!(m, n, x, t)
+function addMostViolated!(m, n, x, t, β, doseVol = false)
     #adds n most violated constraints
     # m - model
     # n - num constraint per organ to add
@@ -234,10 +216,7 @@ function addMostViolated!(m, n, x, t)
             max_viol_org=viol[violIdxs[1]]
             max_viol_aor=max(max_viol_org,max_viol_aor)
             @show viol[violIdxs[n_min]] viol[violIdxs[1]]
-            #@show size(largestViol)
-            #largestViol = largestViol[LAZY_CONS_PERORGAN_INIT_NUM]
-            ## nextreme(DataStructures.FasterReverse(),LAZY_CONS_PERORGAN_INIT_NUM,viol)
-            #violIdxs = findall(viol >= largestViol[length(largestViol)])
+
             first_not_viol_ind = findfirst((viol[violIdxs] .<= 0.0))
             #initialization of _V[k+1] is neccesary to prevent use of the same pointer
             if length(_V[k+1]) == 0 #if the first add all even if not violated
@@ -257,7 +236,18 @@ function addMostViolated!(m, n, x, t)
             end
             num_const_added_aor += length(indicesToAdd)
             xx = m[:x]
-            @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
+            if doseVol
+                dbar = m[:dbar]
+                for l=1:length(indicesToAdd)
+                    dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, start = viol[violIdxs[l]]) # check
+                    #@assert(i in _V[k+1])
+                end
+                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                obj = objective_function(m, QuadExpr)
+                @objective(m, Max, obj-β*sum(dbar[i] for i in indicesToAdd))
+            else
+                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
+            end
         end
         @show num_const_added_aor
         println("Number of voxels in _V ", length(_V[k+1]), " voxels in _N: ",  length(_N[k+1])  , " OAR: ", k+1 )
@@ -318,7 +308,7 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_bar, L=1,bLOAD_FROM_FILE=false)
+function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
     ptvN, nn = size(γ)
     phi_u_n=[]
     phi_b_n=[]
@@ -333,21 +323,21 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_b
     m = initModel(Din,firstIndices,t,dvrhs,β,phi_u_n)
     iter=0
     stage=1
-    sum_num_const_added_aor = LAZY_CONS_PERORGAN_INIT_NUM
+    sum_num_const_added_aor = LAZY_CONS_PERORGAN_INIT_NUM  # this single counter is initialized to the initial number per organ??
     while(true)
         iter=iter+1
         prevObj = BIG_OBJ
         newObj = BIG_OBJ
         prev_viol_aor = 1e6
         max_viol_aor = 1e6
-        @timev for it = 1:MAX_LAZY_CON_IT
-            solveModel!(m,firstIndices)
+        @time for it = 1:MAX_LAZY_CON_IT
+            solveModel!(m,firstIndices,(β>0))
             newObj=JuMP.objective_value(m)
-            max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t)
+            max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, β, (β > 0))
             sum_num_const_added_aor+=num_const_added_aor
             @show max_viol_aor
             if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || max_viol_aor<=MAX_VIOL_EPS
-                println("Total of ", sum_num_const_added_aor, " constraints")
+                println("Total of ", sum_num_const_added_aor, " lazy constraints added so far")
                 println("Reduced the objective by ", (prevObj-newObj)/prevObj)
                 println("Constraints violation by ", (prev_viol_aor-max_viol_aor)/prev_viol_aor)
                 println("Iter= ", it)
@@ -363,7 +353,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_b
         xx = value.(x)
         d = _D[1:ptvN,:]*xx
         @show minimum(d), maximum(d)
-        @timev min_hom_viol, max_hom_viol=addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
+        @time min_hom_viol, max_hom_viol=addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
         if max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS# no violated inequalities found
             #println("Terminating cut algorithm..")
             break
@@ -373,10 +363,11 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_b
             println("Adding ", length(consCollect), " cuts.....................")
         else
             stage=2
+            #set_optimizer_attribute(m, "OptimalityTol", 1e-3)  # tighten tolerance in 2nd phase of the algorithm
         end
 
         cons_array = Any[]
-        @timev for (v,pair) in exclusive(consCollect,startof(consCollect),pastendsemitoken(consCollect))
+        @time for (v,pair) in exclusive(consCollect,startof(consCollect),pastendsemitoken(consCollect))
             #add_constraint(m,cons)
             i1=pair[1]
             i2=pair[2]
@@ -399,10 +390,61 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_b
             #println("added constraint ", cons)
         end
         lenCons = length(cons_array)
-        @timev for i=1:lenCons
+        @time for i=1:lenCons
             add_constraint(m, cons_array[i])
         end
     end
     return m
 end
+
+function printDoseVolume(m, doseVol = false, verbose = false)
+    conicForm = false
+
+    zVar = variable_by_name(m, "z")
+    gVar = m[:g] #variable_by_name(m,"g")
+    xVar = m[:x]
+
+    if zVar != nothing
+        conicForm = true
+    end
+
+    x = value.(xVar)
+    println("Min PTV bio dose, g=",value(gVar))
+
+    for k=1:length(_V)
+        dose = _D[[_V[k];_N[k]],:]*x
+        if !verbose && k > 1
+            break
+        elseif !isempty(dose)
+            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose))
+        end
+    end
+
+    if conicForm
+        #z = m[:z]
+        zz = value.(zVar)
+        #dbar = m[:dbar]
+        for k=2:length(_V)
+            indices = _V[k]
+            oarZ = zz[indices]
+            println("OAR k=", k, " Number of nonzero z: ",  length(oarZ[oarZ.> ZNZTH]) )
+        end
+    elseif doseVol
+        dbarVar = m[:dbar] #variable_by_name(m,"dbar")
+        for k=2:length(_V)
+            indices = _V[k]
+            @show length(dbarVar)
+            nzNum = 0
+            for i = 1:length(indices)
+                if value(dbarVar[indices[i]]) > DBARNZTH
+                    nzNum+=1
+                end
+            end
+            println("OAR k=", k, " Number of nonzero dbar: ", nzNum)
+        end
+    end
+
+    return
+end
+
 end

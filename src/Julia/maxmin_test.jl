@@ -7,7 +7,6 @@ using JuMP
 using SparseArrays
 using FileIO, JLD2
 using Printf
-
 bLOAD_FROM_FILE=false
 
 #file = matopen("liverEx2.mat")
@@ -80,5 +79,5 @@ println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = "
 xx = value.(model[:x])
 g = value.(model[:g])
 PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
-file_name=@sprintf("results_1.2%f_.1%f_%.2%f_%.2%f.jld2",β,μ,δ,gamma_const)
+file_name=@sprintf("results_%1.2f_%.1f_%.2f_%.2f.jld2",β,μ,δ,gamma_const)
 FileIO.save(("file_name","xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar,"t",t,"δ",δ,"μ",μ,"β",β,"gamma_const",gamma_const)
