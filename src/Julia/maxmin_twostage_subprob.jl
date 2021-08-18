@@ -10,13 +10,13 @@ using DataStructures
 using SortingAlgorithms
 import LightGraphs.Parallel
 using FileIO, JLD2
-
+using Printf
 
 #using Plots
 VIOL_EPS = 1e-4
 DBARNZTH = 1e-3
 ZNZTH = 1e-3
-UNIFORM_GAMMA = 0.04
+UNIFORM_GAMMA = 1#0.02
 BIG_OBJ = 1e8
 
 
@@ -323,11 +323,12 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_b
     phi_u_n=[]
     phi_b_n=[]
     dists=[]
+    file_name=@sprintf("Projection_Gamma_%1.3f.jld2",UNIFORM_GAMMA)
     if bLOAD_FROM_FILE
-        phi_u_n, phi_b_n, dists = FileIO.load("Projection.jld2","phi_u_n","phi_b_n","dists")
+        phi_u_n, phi_b_n, dists = FileIO.load(file_name,"phi_u_n","phi_b_n","dists")
     else
         phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, UNIFORM_GAMMA)
-        FileIO.save("Projection.jld2","phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
+        FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
     end
     m = initModel(Din,firstIndices,t,dvrhs,β,phi_u_n)
     iter=0
