@@ -7,14 +7,15 @@ using JuMP
 using SparseArrays
 using FileIO, JLD2
 bLOAD_FROM_FILE=true
+MAX_HOMOGEN_CONS = 200
 
 #file = matopen("liverEx2.mat")
 ρ = [0.998 ; 0.998; 0.998]
 #t = [40.0 ; 40.0]
 t = [62; 54; 100]
 #β = 0.01
-β=0
-μ = 1.25
+β=0 #1e-4
+μ = 1.15
 file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file,"neighbors_Mat")
 ϕ = read(file,"omf_Vec")
@@ -73,4 +74,4 @@ phi_bar = ϕ.+0.05
 phi_bar[phi_bar.>1].= 1
 
 println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
-@time maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_bar,200,bLOAD_FROM_FILE)
+@time maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_bar,MAX_HOMOGEN_CONS,bLOAD_FROM_FILE)
