@@ -6,21 +6,17 @@ using MAT
 using JuMP
 using SparseArrays
 using FileIO, JLD2
-bLOAD_FROM_FILE=true
-MAX_HOMOGEN_CONS = 200
+using Printf
+bLOAD_FROM_FILE=false
 
 #file = matopen("liverEx2.mat")
-#ρ = [0.998 ; 0.998; 0.998]
-
-#t = [40; 40]
+ρ = [0.998 ; 0.998; 0.998]
+#t = [40.0 ; 40.0]
 t = [62; 54; 100]
-# check if 99% < 60
-
 #β = 0.01
-β=0
-μ = 1.25
-gamma_const = 0.04
-
+β = 0
+μ = 1.15
+δ = 0
 file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file,"neighbors_Mat")
 ϕ = read(file,"omf_Vec")
@@ -73,10 +69,15 @@ println(firstIndices)
 @assert(size(γ,1)==firstIndices[1]-1)#need to make sure these are the same
 #m = maxmin_twostage_subprob.initModel(D,firstIndices,t,dvrhs,β)
 #m = maxmin_twostage_subprob.solveModel!(m)
-phi_under = ϕ.-0.05
+phi_under = ϕ.- δ
 phi_under[phi_under.<0].= 0
-phi_bar = ϕ.+0.05
+phi_bar = ϕ.+ δ
 phi_bar[phi_bar.>1].= 1
 
 println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
-@time maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ, gamma_const, phi_under,phi_bar,MAX_HOMOGEN_CONS,bLOAD_FROM_FILE)
+@time model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ,phi_under,phi_bar,200,bLOAD_FROM_FILE)
+xx = value.(model[:x])
+g = value.(model[:g])
+PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
+file_name=@sprintf("results_%1.2f_%.1f_%.2f_%.2f.jld2",β,μ,δ,gamma_const)
+FileIO.save(("file_name","xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar,"t",t,"δ",δ,"μ",μ,"β",β,"gamma_const",gamma_const)

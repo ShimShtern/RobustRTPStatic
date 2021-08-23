@@ -11,7 +11,7 @@ using SortingAlgorithms
 using Statistics
 import LightGraphs.Parallel
 using FileIO, JLD2
-
+using Printf
 
 #using Plots
 INITXNORM = 100
@@ -312,11 +312,12 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, 
     phi_u_n=[]
     phi_b_n=[]
     dists=[]
+    file_name=@sprintf("Projection_Gamma_%1.3f.jld2",UNIFORM_GAMMA)
     if bLOAD_FROM_FILE
-        phi_u_n, phi_b_n, dists = FileIO.load("Projection.jld2","phi_u_n","phi_b_n","dists")
+        phi_u_n, phi_b_n, dists = FileIO.load(file_name,"phi_u_n","phi_b_n","dists")
     else
-        phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, gamma_const)
-        FileIO.save("Projection.jld2","phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
+        phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, UNIFORM_GAMMA)
+        FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
     end
     m = initModel(Din,firstIndices,t,dvrhs,β,phi_u_n)
     iter=0
