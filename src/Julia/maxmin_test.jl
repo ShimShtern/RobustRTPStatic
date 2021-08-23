@@ -12,10 +12,12 @@ MAX_HOMOGEN_CONS = 200
 #file = matopen("liverEx2.mat")
 #ρ = [0.998 ; 0.998; 0.998]
 
-#t = [40.0 ; 40.0]
+#t = [40; 40]
 t = [62; 54; 100]
+# check if 99% < 60
+
 #β = 0.01
-β=1e-4
+β=0
 μ = 1.25
 gamma_const = 0.04
 
