@@ -8,12 +8,14 @@ using LinearAlgebra
 using LightGraphs, SimpleWeightedGraphs
 using DataStructures
 using SortingAlgorithms
-using BenchmarkTools
+using Statistics
 import LightGraphs.Parallel
 using FileIO, JLD2
 using Printf
 
 #using Plots
+INITXNORM = 100
+
 VIOL_EPS = 1e-4
 DBARNZTH = 1e-3
 ZNZTH = 1e-3
@@ -29,7 +31,7 @@ LAZYCONS_TIGHT_TH = 0.2
 MAX_VIOL_RATIO_TH = 0.2
 
 MAX_V_CONS = 10 #can be set to infinity
-MAX_VIOL_EPS = 1e-4
+MAX_VIOL_EPS = 1e-2
 MAX_VIOL_EPS_INIT = 10
 
 global _D   # save D in order to load rows as needed
@@ -56,7 +58,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
 
     optimizer = Gurobi.Optimizer #SCS.Optimizer
     m = Model(optimizer)
-    set_optimizer_attribute(m, "OutputFlag", 1)
+    set_optimizer_attribute(m, "OutputFlag", 0)
     set_optimizer_attribute(m, "OptimalityTol", 1e-2)
     ptvn = length(_V[1])
     @variable(m,g)
@@ -71,7 +73,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
         global _D = Din
         # select initial rows according to max violation with given initial soln vector
         if isempty(xinit)
-            xinit = 100/nb*ones(nb,1)
+            xinit = INITXNORM/nb*ones(nb,1)
         end
 
         if β>0
@@ -187,9 +189,7 @@ function solveModel!(m,firstIndices,doseVol=false)
     end
         #cons = constraint_by_name(m,"cons_oar")
     #n = length(cons)
-
     printDoseVolume(m,doseVol)
-
     return m
 end
 
@@ -240,7 +240,6 @@ function addMostViolated!(m, n, x, t, β, doseVol = false)
                 dbar = m[:dbar]
                 for l=1:length(indicesToAdd)
                     dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, start = viol[violIdxs[l]]) # check
-                    #@assert(i in _V[k+1])
                 end
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
                 obj = objective_function(m, QuadExpr)
@@ -394,6 +393,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, 
             add_constraint(m, cons_array[i])
         end
     end
+    printDoseVolume(m, (β>0), true) # print out verbose output
     return m
 end
 
@@ -403,23 +403,20 @@ function printDoseVolume(m, doseVol = false, verbose = false)
     zVar = variable_by_name(m, "z")
     gVar = m[:g] #variable_by_name(m,"g")
     xVar = m[:x]
-
     if zVar != nothing
         conicForm = true
     end
-
     x = value.(xVar)
     println("Min PTV bio dose, g=",value(gVar))
 
-    for k=1:length(_V)
-        dose = _D[[_V[k];_N[k]],:]*x
-        if !verbose && k > 1
-            break
-        elseif !isempty(dose)
-            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose))
+    if verbose
+        for k=1:length(_V)
+            dose = _D[[_V[k];_N[k]],:]*x
+            if !isempty(dose)
+                println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99))
+            end
         end
     end
-
     if conicForm
         #z = m[:z]
         zz = value.(zVar)
@@ -443,7 +440,6 @@ function printDoseVolume(m, doseVol = false, verbose = false)
             println("OAR k=", k, " Number of nonzero dbar: ", nzNum)
         end
     end
-
     return
 end
 
