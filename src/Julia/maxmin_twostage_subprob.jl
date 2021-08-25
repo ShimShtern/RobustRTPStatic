@@ -258,9 +258,13 @@ function addMostViolated!(m, n, x, t, tmax, β, doseVol = false)
                         set_upper_bound(z[indicesToAdd[l]],1)
                     end
                 end
-                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
-                if t[k]<tmax[k]
+                if β > 0
+                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                elseif t[k]<tmax[k]
+                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
                     @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
+                else
+                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
                 end
                 obj = objective_function(m, QuadExpr)
                 @objective(m, Max, obj-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for i in indicesToAdd))
