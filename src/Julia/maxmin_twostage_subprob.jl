@@ -110,7 +110,7 @@ function initModel(Din,firstIndices,t, tmax, dvrhs=[],β=0,phi_u_n=[],xinit=[])
             end
         end
 
-        addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t, tmax, β, !isempty(dvrhs))
+        addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t, tmax, β)
 
     #println("************ debug **************")
     #println(Din.nzval)
@@ -198,7 +198,7 @@ function solveModel!(m,firstIndices,doseVol=false)
     return m
 end
 
-function addMostViolated!(m, n, x, t, tmax, β, doseVol = false)
+function addMostViolated!(m, n, x, t, tmax, β)
     #adds n most violated constraints
     # m - model
     # n - num constraint per organ to add
@@ -241,32 +241,30 @@ function addMostViolated!(m, n, x, t, tmax, β, doseVol = false)
             end
             num_const_added_aor += length(indicesToAdd)
             xx = m[:x]
-            if doseVol
-                z = []
-                dbar = m[:dbar]
+            z = []
+            dbar = m[:dbar]
+            if t[k]<tmax[k]
+                z = m[:z]
+            end
+            for l=1:length(indicesToAdd)
+                if β>0 || t[k]<tmax[k]
+                    dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k] , start = viol[violIdxs[l]])
+                end
                 if t[k]<tmax[k]
-                    z = m[:z]
-                end
-                for l=1:length(indicesToAdd)
-                    if β>0 || t[k]<tmax[k]
-                        dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k] , start = viol[violIdxs[l]])
-                    end
-                    if t[k]<tmax[k]
-                         # check
-                        unfix(z[indicesToAdd[l]])
-                        set_lower_bound(z[indicesToAdd[l]],0)
-                        set_upper_bound(z[indicesToAdd[l]],1)
-                    end
-                end
-                if β > 0
-                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
-                elseif t[k]<tmax[k]
-                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
-                    @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
-                else
-                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
+                    unfix(z[indicesToAdd[l]])
+                    set_lower_bound(z[indicesToAdd[l]],0)
+                    set_upper_bound(z[indicesToAdd[l]],1)
                 end
             end
+            if β > 0
+                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+            elseif t[k]<tmax[k]
+                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
+            else
+                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
+            end
+
 
             if β > 0
                 obj = objective_function(m, QuadExpr)
@@ -363,7 +361,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
                 println("Terminating lazy cons loop at It= ", it)
                 break
             end
-            max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β, (β > 0))
+            max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β)
             sum_num_const_added_aor+=num_const_added_aor
             @show max_viol_aor
             prev_viol_aor = max_viol_aor
