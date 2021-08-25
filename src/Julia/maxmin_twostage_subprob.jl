@@ -266,11 +266,14 @@ function addMostViolated!(m, n, x, t, tmax, β, doseVol = false)
                 else
                     @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
                 end
+            end
+
+            if β > 0
                 obj = objective_function(m, QuadExpr)
                 @objective(m, Max, obj-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for i in indicesToAdd))
-            else
-                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
             end
+            #    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
+            #end
         end
         @show num_const_added_aor
         println("Number of voxels in _V ", length(_V[k+1]), " voxels in _N: ",  length(_N[k+1])  , " OAR: ", k+1 )
