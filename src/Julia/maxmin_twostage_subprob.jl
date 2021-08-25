@@ -24,15 +24,17 @@ UNIFORM_GAMMA = true
 
 LAZY_CONS_PERORGAN_TH = 5e4
 LAZY_CONS_PERORGAN_INIT_NUM = 400
-LAZY_CONS_PERORGAN_NUM_PER_ITER = 100
-MAX_LAZY_CON_IT = 200
+LAZY_CONS_PERORGAN_NUM_PER_ITER = 200
+MAX_LAZY_CON_IT = 500
 
-LAZYCONS_TIGHT_TH = 0.2
-MAX_VIOL_RATIO_TH = 0.2
+LAZYCONS_TIGHT_TH = 0.3
+MAX_VIOL_RATIO_TH = 0.3
 
 MAX_V_CONS = 10 #can be set to infinity
-MAX_VIOL_EPS = 1e-2
+MAX_VIOL_EPS = 1e-1
 MAX_VIOL_EPS_INIT = 10
+
+SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
 global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
@@ -40,13 +42,13 @@ global _V
 global _N # voxels by organ not loaded into optimization
 
 
-export initModel, solveModel!, robustCuttingPlaneAlg, addMostViolated!
+export initModel, solveModel!,robustCuttingPlaneAlg
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
 
 #
-function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
+function initModel(Din,firstIndices,t, tmax, dvrhs=[],β=0,phi_u_n=[],xinit=[])
 
     n, nb = size(Din)
     #_rowLoc = spzeros(n,1)
@@ -59,7 +61,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
     optimizer = Gurobi.Optimizer #SCS.Optimizer
     m = Model(optimizer)
     set_optimizer_attribute(m, "OutputFlag", 0)
-    set_optimizer_attribute(m, "OptimalityTol", 1e-2)
+    set_optimizer_attribute(m, "OptimalityTol", 5e-3)
     ptvn = length(_V[1])
     @variable(m,g)
     if isempty(phi_u_n)  # if not given then initialize phi to unity to solve nominal problem
@@ -69,26 +71,37 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
     #htn = n - firstIndices[1] + 1 # number of healthy tissue voxels
     @variable(m,x[1:nb]>=0)
     @constraint(m,cons_ptv[i in _V[1]], g <= phi_u_n[i]*Din[i,:].nzval'*x[Din[i,:].nzind])
-
         global _D = Din
         # select initial rows according to max violation with given initial soln vector
         if isempty(xinit)
             xinit = INITXNORM/nb*ones(nb,1)
         end
 
-        if β>0
+        if β>0 || !isempty(dvrhs)
             dbar = m[:dbar] = Dict()
         end
 
         firstIndices = [firstIndices; n+1]
         for k = 1:length(firstIndices)-1
+            if t[k] < tmax[k]
+                @variable(m, z[firstIndices[k]:firstIndices[k+1]-1]==0)
+                #fix(z,0,force=true)
+                @constraint(m,dos_vol[k],sum(z[i] for i=firstIndices[k]:firstIndices[k+1]-1 ) <= dvrhs[k] )
+            end
+
             if firstIndices[k+1]-firstIndices[k] <= LAZY_CONS_PERORGAN_TH
                 _V[k+1] =  firstIndices[k]:firstIndices[k+1]-1
-                if β>0
+                if (!isempty(dvrhs) &&  t[k] < tmax[k] ) || β>0
                     for i in _V[k+1]
                         dbar[i] = @variable(m,lower_bound=0)
                     end
                     @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                   if t[k]<tmax[k]
+                       unfix(z[_V[k+1]])
+                       set_lower_bound(z[_V[k+1]],0)
+                       set_upper_bound(z[_V[k+1]],1)
+                       @constraint(m, [i in _V[k+1]], dbar[i] <= (tmax[k]-t[k])*z[k])
+                   end
                 else
                     @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) <= t[k])
                 end
@@ -97,7 +110,7 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
             end
         end
 
-        addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t, β, (β>0))
+        addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t, tmax, β, !isempty(dvrhs))
 
     #println("************ debug **************")
     #println(Din.nzval)
@@ -107,21 +120,14 @@ function initModel(Din,firstIndices,t,dvrhs,β=0,phi_u_n=[],xinit=[])
     @show length(_V)
 
     if β > 0 # penalty coefficient of DV related term in objective
-        #@variable(m,dbar[k=2:length(_V),i in _V[k]]>=0)
-        #@variable(m,u[k=2:length(_V),i in _V[k]]>=0)
-        #@variable(m,0<=z[k=2:length(_V),i in _V[k]]<=1)
-        #@constraint(m,cons_oar[k=2:length(_V),i in _V[k]], Din[i,:].nzval'*x[Din[i,:].nzind]-dbar[i] <= t[k-1])
-        #@constraint(m,cons_ind[k=2:length(_V),i in _V[k]], dbar[i]^2 <= u[i]*z[i])
-        #@constraint(m,dos_vol[k=2:length(_V)],sum(z[i] for i in _V[k]) <= dvrhs[k] )
         dbar = m[:dbar]
         @show length(dbar)
-        @objective(m, Max, g-β*sum(dbar[i] for k=2:length(_V),i in _V[k]))
+        @objective(m, Max, g-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
     else
         @objective(m, Max, g)
     end
     println("Init Model End......................")
     #write_to_file(m,"DBGModel.lp")
-
     return m
 end
 
@@ -172,7 +178,6 @@ function solveModel!(m,firstIndices,doseVol=false)
 #            JuMP.set_start_value(m[:z],z)
 #        end
     #end
-
     @time optimize!(m)
 
     if termination_status(m) == MOI.OPTIMAL
@@ -189,11 +194,11 @@ function solveModel!(m,firstIndices,doseVol=false)
     end
         #cons = constraint_by_name(m,"cons_oar")
     #n = length(cons)
-    printDoseVolume(m,doseVol)
+    #printDoseVolume(m,doseVol)
     return m
 end
 
-function addMostViolated!(m, n, x, t, β, doseVol = false)
+function addMostViolated!(m, n, x, t, tmax, β, doseVol = false)
     #adds n most violated constraints
     # m - model
     # n - num constraint per organ to add
@@ -237,13 +242,28 @@ function addMostViolated!(m, n, x, t, β, doseVol = false)
             num_const_added_aor += length(indicesToAdd)
             xx = m[:x]
             if doseVol
+                z = []
                 dbar = m[:dbar]
+                if t[k]<tmax[k]
+                    z = m[:z]
+                end
                 for l=1:length(indicesToAdd)
-                    dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, start = viol[violIdxs[l]]) # check
+                    if β>0 || t[k]<tmax[k]
+                        dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k] , start = viol[violIdxs[l]])
+                    end
+                    if t[k]<tmax[k]
+                         # check
+                        unfix(z[indicesToAdd[l]])
+                        set_lower_bound(z[indicesToAdd[l]],0)
+                        set_upper_bound(z[indicesToAdd[l]],1)
+                    end
                 end
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                if t[k]<tmax[k]
+                    @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
+                end
                 obj = objective_function(m, QuadExpr)
-                @objective(m, Max, obj-β*sum(dbar[i] for i in indicesToAdd))
+                @objective(m, Max, obj-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for i in indicesToAdd))
             else
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
             end
@@ -307,7 +327,7 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
+function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
     ptvN, nn = size(γ)
     phi_u_n=[]
     phi_b_n=[]
@@ -319,7 +339,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, 
         phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, UNIFORM_GAMMA)
         FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
     end
-    m = initModel(Din,firstIndices,t,dvrhs,β,phi_u_n)
+    m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n)
     iter=0
     stage=1
     sum_num_const_added_aor = LAZY_CONS_PERORGAN_INIT_NUM  # this single counter is initialized to the initial number per organ??
@@ -330,23 +350,22 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, 
         prev_viol_aor = 1e6
         max_viol_aor = 1e6
         @time for it = 1:MAX_LAZY_CON_IT
-            solveModel!(m,firstIndices,(β>0))
+            solveModel!(m,firstIndices,!isempty(dvrhs))
             newObj=JuMP.objective_value(m)
-            max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, β, (β > 0))
-            sum_num_const_added_aor+=num_const_added_aor
-            @show max_viol_aor
             if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || max_viol_aor<=MAX_VIOL_EPS
-                println("Total of ", sum_num_const_added_aor, " lazy constraints added so far")
-                println("Reduced the objective by ", (prevObj-newObj)/prevObj)
-                println("Constraints violation by ", (prev_viol_aor-max_viol_aor)/prev_viol_aor)
-                println("Iter= ", it)
+                println("Terminating lazy cons loop at It= ", it)
                 break
             end
+            max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β, (β > 0))
+            sum_num_const_added_aor+=num_const_added_aor
+            @show max_viol_aor
             prev_viol_aor = max_viol_aor
             prevObj = newObj
         end
-
-        println("Iteration: ", iter, " Objective value: ", newObj, " *********")
+        println("Total of ", sum_num_const_added_aor, " lazy constraints added so far")
+        println("Reduced the objective by ", (prevObj-newObj)/prevObj)
+        println("Constraints violation by ", (prev_viol_aor-max_viol_aor)/prev_viol_aor)
+        println("Outer loop Iter=", iter, " Objective value: ", newObj, " *********")
         consCollect = SortedMultiDict{Float64,Array{Int64,1}}()
         x = m[:x]
         xx = value.(x)
@@ -354,7 +373,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, 
         @show minimum(d), maximum(d)
         @time min_hom_viol, max_hom_viol=addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
         if max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS# no violated inequalities found
-            #println("Terminating cut algorithm..")
+            println("Terminating cut algorithm.. iter=", iter)
             break
         elseif !isempty(consCollect)
             stage=1
@@ -393,11 +412,11 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,dvrhs,β,μ, γ, gamma_const, 
             add_constraint(m, cons_array[i])
         end
     end
-    printDoseVolume(m, (β>0), true) # print out verbose output
+    printDoseVolume(m, t, tmax, !isempty(dvrhs), true) # print out verbose output
     return m
 end
 
-function printDoseVolume(m, doseVol = false, verbose = false)
+function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
     conicForm = false
 
     zVar = variable_by_name(m, "z")
@@ -429,15 +448,17 @@ function printDoseVolume(m, doseVol = false, verbose = false)
     elseif doseVol
         dbarVar = m[:dbar] #variable_by_name(m,"dbar")
         for k=2:length(_V)
-            indices = _V[k]
-            @show length(dbarVar)
-            nzNum = 0
-            for i = 1:length(indices)
-                if value(dbarVar[indices[i]]) > DBARNZTH
-                    nzNum+=1
+            if t[k-1] < tmax[k-1]
+                indices = _V[k]
+                @show length(dbarVar)
+                nzNum = 0
+                for i = 1:length(indices)
+                    if value(dbarVar[indices[i]]) > DBARNZTH
+                        nzNum+=1
+                    end
                 end
+                println("OAR k=", k, " Number of nonzero dbar: ", nzNum)
             end
-            println("OAR k=", k, " Number of nonzero dbar: ", nzNum)
         end
     end
     return
