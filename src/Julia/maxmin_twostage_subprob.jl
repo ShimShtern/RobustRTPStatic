@@ -36,6 +36,8 @@ MAX_VIOL_EPS_INIT = 10
 
 SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
+BIG_NUM = 1e6
+
 global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
 global _V
@@ -204,21 +206,22 @@ function addMostViolated!(m, n, x, t, tmax, β)
     num_const_added_aor = 0
     max_viol_aor = 0.0
     for k in 1:length(_N)-1
-        #if length(_V[2])>0
-        #    @show _V[2][end], _V[4][end]
-        #end
         if length(_N[k+1]) > 0 || tmax[k] > t[k]
             indicesToAdd = []
             voxIdxs = _N[k+1]
             z = []
             if tmax[k] > t[k]
                 z = m[:z]
-                zz = value.(z)
-                zdata = zz.data
-                nzZIdxs = findall(zdata->zdata > 0,zdata)
-                nzZIdxs = zz.axes[1][nzZIdxs]
-                voxIdxs = _V[k+1]
-                voxIdxs = setdiff(voxIdxs,nzZIdxs)
+                #zz = value.(z)
+                #zdata = zz.data
+                #nzZIdxs = findall(zdata->zdata > 0,zdata)
+                #nzZIdxs = zz.axes[1][nzZIdxs]
+                for i in _V[k+1]
+                    if is_fixed(z[i])
+                        push!(voxIdxs,i)
+                    end
+                end
+                #voxIdxs = setdiff(_V[k+1],nzZIdxs)
             end
             viol = vec(_D[voxIdxs,:]*x .- t[k])
             n_min=min(n,length(viol))
@@ -229,9 +232,8 @@ function addMostViolated!(m, n, x, t, tmax, β)
 
             first_not_viol_ind = findfirst((viol[violIdxs] .<= 0.0))
             #initialization of _V[k+1] is neccesary to prevent use of the same pointer
-
             indicesToAdd = []
-            if length(_V[k+1]) == 0 #if the first add all even if not violated
+            if length(_V[k+1]) == 0 && t[k]==tmax[k] #if the first add all even if not violated
                 indicesToAdd = _N[k+1][violIdxs]
                 _V[k+1] = indicesToAdd
                 deleteat!(_N[k+1], sort!(violIdxs))
@@ -246,7 +248,7 @@ function addMostViolated!(m, n, x, t, tmax, β)
                         append!(_V[k+1], indicesToAdd) #union!(_V[k+1],indicesToAdd)
                         deleteat!(_N[k+1], violIdxs)
                     else
-                        indicesToAdd = _V[k+1][violIdxs]
+                        indicesToAdd = voxIdxs[violIdxs]
                     end
                 end
             end
@@ -259,7 +261,7 @@ function addMostViolated!(m, n, x, t, tmax, β)
             end
             for l=1:length(indicesToAdd)
                 if β>0 || t[k]<tmax[k]
-                    dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k] , start = viol[violIdxs[l]])
+                    dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, start = viol[violIdxs[l]])
                 end
                 if t[k]<tmax[k]
                     unfix(z[indicesToAdd[l]])
@@ -357,12 +359,13 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
         iter=iter+1
         prevObj = BIG_OBJ
         newObj = BIG_OBJ
-        prev_viol_aor = 1e6
-        max_viol_aor = 1e6
+        prev_viol_aor = BIG_NUM
+        max_viol_aor = BIG_NUM
+        max_viol_dev = BIG_NUM
         @time for it = 1:MAX_LAZY_CON_IT
             solveModel!(m,firstIndices)
             newObj=JuMP.objective_value(m)
-            if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || max_viol_aor<=MAX_VIOL_EPS
+            if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || (max_viol_aor<=MAX_VIOL_EPS && max_viol_dev<=MAX_VIOL_EPS)
                 println("Terminating lazy cons loop at It= ", it)
                 break
             end
