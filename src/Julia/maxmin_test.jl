@@ -10,14 +10,15 @@ using Printf
 bLOAD_FROM_FILE=true
 
 #file = matopen("liverEx2.mat")
-ρ = [0.998 ; 0.998; 0.998]
+ρ = [0.99 ; 1; 1]
 #t = [40.0 ; 40.0]
-t = [62; 54; 100]
+t = [60; 54; 100]
+tmax = [62; 54; 100]
 #β = 0.01
-β = 0
-μ = 1.25
+β = 0 #1e-8
+μ = 1.25 #1.25 #1.1
 gamma_const = 0.04
-δ = 0
+δ = 0.05
 file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file,"neighbors_Mat")
 ϕ = read(file,"omf_Vec")
@@ -43,7 +44,7 @@ else
 
     D = spzeros(0,nb)
     firstIndices = [] # vector of indices of first voxels for each of the stuctures
-    dvrhs = zeros(length(V)-1)
+    dvrhs =   zeros(length(V)-1)
     for k in 1:length(V)-1
         if k> 1 #size(D,1)>0
             println(size(D))
