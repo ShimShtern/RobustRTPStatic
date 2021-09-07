@@ -2,7 +2,7 @@ module maxmin_twostage_subprob
 using MAT
 using JuMP
 using Gurobi
-using SCS
+#using SCS
 using SparseArrays
 using LinearAlgebra
 using LightGraphs, SimpleWeightedGraphs
@@ -16,7 +16,7 @@ using Printf
 #using Plots
 INITXNORM = 100
 
-VIOL_EPS = 1e-4
+VIOL_EPS = 1e-3
 DBARNZTH = 1e-4
 ZNZTH = 1e-4
 BIG_OBJ = 1e8
@@ -31,7 +31,7 @@ LAZYCONS_TIGHT_TH = 0.2
 MAX_VIOL_RATIO_TH = 0.2
 
 MAX_V_CONS = 10 #can be set to infinity
-MAX_VIOL_EPS = 1e-2
+MAX_VIOL_EPS = 1e-3
 MAX_VIOL_EPS_INIT = 10
 
 SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
@@ -117,12 +117,6 @@ function initModel(Din,firstIndices,t,dvrhs=[],β=0,phi_u_n=[],xinit=[])
     end
 
     addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t,t,β)
-
-    #println("************ debug **************")
-    #println(Din.nzval)
-    #println(findnz(Din))
-    #println("*********************")
-
     @show length(_V)
 
     if β > 0 # penalty coefficient of DV related term in objective
@@ -261,7 +255,9 @@ function addMostViolated!(m, n, x, t, tmax, β, forDVOnly = false)
                     dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, start = viol[violIdxs[l]])
                 end
                 if t[k]<tmax[k]
+                    @assert(tmax[k]-t[k] >= 1)
                     unfix(z[indicesToAdd[l]])
+                    set_start_value(z[indicesToAdd[l]],1/(tmax[k]-t[k]))
                     set_lower_bound(z[indicesToAdd[l]],0)
                     set_upper_bound(z[indicesToAdd[l]],1)
                 end
@@ -364,7 +360,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
                 println("Terminating lazy cons loop at It= ", it)
                 break
             end
-            if stage == 2
+            if stage == 2 && !isempty(dvrhs)
                 # add constraints with dbar variables and t RHS only for organs k with tmax[k] > t[k]
                 max_viol_dev , num_const_added_wdv = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β,true)
                 println("Max violation wrt to t in _V: ", max_viol_dev, " Num of cons with dev added: ", num_const_added_wdv)
@@ -385,7 +381,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
         d = _D[1:ptvN,:]*xx
         @show minimum(d), maximum(d)
         @time min_hom_viol, max_hom_viol=addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
-        if stage==2 && max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS && (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
+        if max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS && (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
             println("Terminating cut algorithm.. iter=", iter)
             break
         elseif !isempty(consCollect)
