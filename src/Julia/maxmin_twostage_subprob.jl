@@ -3,6 +3,7 @@ using MAT
 using JuMP
 using Gurobi
 #using SCS
+using UnicodePlots
 using SparseArrays
 using LinearAlgebra
 using LightGraphs, SimpleWeightedGraphs
@@ -44,15 +45,16 @@ global _V
 global _N # voxels by organ not loaded into optimization
 
 
-export initModel, solveModel!,robustCuttingPlaneAlg
+export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
 
 
 function initDoseVolume(m, t, tmax, dvrhs)
+    println("initDoseVolume....")
     for k =1:length(t)
-        if tmax[k] != t[k]
+        if tmax[k] > t[k]
             @variable(m, z[union(_V[k+1],_N[k+1])]==0)
             @constraint(m,dos_vol[k],sum(z[i] for i in _V[k+1] ) + sum(z[i] for i in _N[k+1] ) <= dvrhs[k] )
         end
@@ -330,6 +332,7 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
 end
 
 function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
+    @assert(isempty(dvrhs) || sum(tmax-t)>0)
     ptvN, nn = size(γ)
     phi_u_n=[]
     phi_b_n=[]
@@ -358,6 +361,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
             newObj=JuMP.objective_value(m)
             if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || (max_viol_aor<=MAX_VIOL_EPS && (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
                 println("Terminating lazy cons loop at It= ", it)
+                flush(stdout)
                 break
             end
             if stage == 2 && !isempty(dvrhs)
@@ -381,7 +385,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
         d = _D[1:ptvN,:]*xx
         @show minimum(d), maximum(d)
         @time min_hom_viol, max_hom_viol=addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
-        if max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS && (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
+        if stage==2 && max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS && (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
             println("Terminating cut algorithm.. iter=", iter)
             break
         elseif !isempty(consCollect)
@@ -425,7 +429,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
             add_constraint(m, cons_array[i])
         end
     end
-    printDoseVolume(m, t, tmax, !isempty(dvrhs), true) # print out verbose output
+    #printDoseVolume(m, t, tmax, !isempty(dvrhs), true) # print out verbose output
     return m
 end
 
@@ -435,43 +439,73 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
     zVar = variable_by_name(m, "z")
     gVar = m[:g] #variable_by_name(m,"g")
     xVar = m[:x]
-    if zVar != nothing
-        conicForm = true
-    end
+    #if zVar != nothing
+    #    conicForm = true
+    #end
     x = value.(xVar)
     println("Min PTV bio dose, g=",value(gVar))
 
     if verbose
         for k=1:length(_V)
             dose = _D[[_V[k];_N[k]],:]*x
-            if !isempty(dose)
-                println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99))
+            dev = []
+            zVar = []
+            if !isempty(t) && !isempty(tmax) && k>=2 && tmax[k-1] > t[k-1]
+                dev = max.(dose .- t[k-1],0)
+                zVar = dev./(tmax[k-1]-t[k-1])
             end
+            numDev = 0
+            if !isempty(dev)
+                numDev = count(i->(i>DBARNZTH),dev)
+            end
+            sumZVar = 0
+            if !isempty(zVar)
+                sumZVar = sum(zVar)
+                histogram(zVar[zVar .> ZNZTH])
+                #savefig("zlikehist.png")
+            end
+            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99), " vox num exceeding t: " , numDev, " sum(zVar):", sumZVar)
         end
     end
-    if conicForm
-        #z = m[:z]
-        zz = value.(zVar)
-        #dbar = m[:dbar]
-        for k=2:length(_V)
-            indices = _V[k]
-            oarZ = zz[indices]
-            println("OAR k=", k, " Number of nonzero z: ",  length(oarZ[oarZ.> ZNZTH]) )
-        end
-    elseif doseVol
+
+    if doseVol
         dbarVar = m[:dbar] #variable_by_name(m,"dbar")
+        zVar = m[:z]
+        zVarVal = []
+        if zVar != nothing
+            zVarVal = value.(zVar)
+            #I = axes(zVarVal,Axis{1})
+            nzZVal = zVarVal.data[zVarVal.data .> ZNZTH]
+            histogram(nzZVal)
+            #savefig("zhist.png")
+        else
+            println("z var not created")
+        end
+
         for k=2:length(_V)
             if t[k-1] < tmax[k-1]
                 indices = _V[k]
                 @show length(dbarVar)
-                dev = _D[indices,:]*x.-t[k-1]
+                dev = max.(_D[indices,:]*x.-t[k-1],0)
                 nzNum = 0
+                nzDvar = 0
+                nzZvar = 0
                 for i = 1:length(indices)
                     if dev[i] > DBARNZTH
                         nzNum+=1
+                        if value(dbarVar[indices[i]]) > DBARNZTH
+                            nzDvar+=1
+                        end
+                    end
+                    if zVar!=nothing && zVarVal[indices[i]] > ZNZTH
+                        nzZvar+=1
                     end
                 end
-                println("OAR k=", k, " Number of nonzero dbar: ", nzNum)
+                println("OAR k=", k, " Number of deviations from t: ", nzNum)
+                println("OAR k=", k, " Number of nonzero dbar: ", nzDvar)
+                if zVar != nothing
+                    println("OAR k=", k, " Number of nonzero z: ", nzZvar, " sum z: ", sum(zVarVal.data))
+                end
             end
         end
     end
