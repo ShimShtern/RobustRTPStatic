@@ -37,6 +37,7 @@ else
     inD = read(file, "Dij")
     V = read(file, "V")
     close(file)
+end
 
     println(
         "initial D size: ",
@@ -63,6 +64,8 @@ else
     D = spzeros(0, nb)
     firstIndices = [] # vector of indices of first voxels for each of the stuctures
     dvrhs = zeros(length(V) - 1)
+
+
     for k = 1:length(V)-1
         if k > 1 #size(D,1)>0
             println(size(D))
@@ -71,7 +74,7 @@ else
         oarIndices = Array{Int}(vec(V[k]))
         idxs = intersect(nonzeroIdxs, oarIndices) #findall(in(nonzeroIdxs),oarIndices)
         println(
-            "organ: ",
+            "struct: ",
             k,
             " before removing rows: ",
             length(V[k]),
@@ -94,9 +97,8 @@ else
         if rowN > 0
             global D = [D; appendD]
             if k > 1
-                dvrhs[k-1] = floor((1 - ρ[k-1]) * length(V[k]))
-                println("DVRHS: ", dvrhs[k-1] , " for organ: ", k-1, )
-            end
+            dvrhs[k-1] = floor((1 - ρ[k-1]) * length(V[k]))
+            println("DVRHS: ", dvrhs[k-1] , " for organ: ", k-1, )
         end
     end
     FileIO.save(
@@ -117,7 +119,6 @@ println(firstIndices)
 @assert(size(γ, 1) == firstIndices[1] - 1)#need to make sure these are the same
 #m = maxmin_twostage_subprob.initModel(D,firstIndices,t,dvrhs,β)
 #m = maxmin_twostage_subprob.solveModel!(m)
-
 
 #for
 δ = 0.05 #0:0.01:0.1  #0.05
@@ -140,7 +141,7 @@ println(
 @time model = maxmin_twostage_subprob.robustCuttingPlaneAlg(
     D,
     firstIndices,
-    tmax, #
+    t, #
     #t,
     tmax, #tmax,
     dvrhs,
@@ -155,6 +156,11 @@ println(
 )
 xx = value.(model[:x])
 g = value.(model[:g])
+zz = []
+if !isempty(dvrhs)
+    zz = value.(model[:z])
+end
+
 PhysHom =
     maximum(D[1:firstIndices[1]-1, :] * xx) /
     minimum(D[1:firstIndices[1]-1, :] * xx)
@@ -165,6 +171,8 @@ FileIO.save(
     xx,
     "g",
     g,
+    "zz",
+    zz,
     "PhysHom",
     PhysHom,
     "phi_under",
@@ -187,3 +195,11 @@ maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) #
 
 
 #end
+
+#println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
+#time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ,gamma_const,phi_under,phi_bar,200,bLOAD_FROM_FILE)
+#xx = value.(model[:x])
+#g = value.(model[:g])
+#PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
+#file_name=@sprintf("results_%1.2f_%.2f_%.2f_%.2f.jld2",β,μ,δ,gamma_const)
+#FileIO.save(file_name,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar,"t",t,"δ",δ,"μ",μ,"β",β,"gamma_const",gamma_const,"time_prof",time_prof)

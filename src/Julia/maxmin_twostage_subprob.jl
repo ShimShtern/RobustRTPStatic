@@ -55,8 +55,9 @@ function initDoseVolume(m, t, tmax, dvrhs)
     println("initDoseVolume....")
     for k =1:length(t)
         if tmax[k] > t[k]
-            @variable(m, z[union(_V[k+1],_N[k+1])]==0)
+            @variable(m, z[[_V[k+1];_N[k+1]]]==0)
             @constraint(m,dos_vol[k],sum(z[i] for i in _V[k+1] ) + sum(z[i] for i in _N[k+1] ) <= dvrhs[k] )
+            println("Adding dose vol cons for organ k=", k, " dvrhs[k]=", dvrhs[k])
         end
     end
     return m
