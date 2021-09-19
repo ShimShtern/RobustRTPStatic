@@ -39,6 +39,8 @@ SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
 BIG_NUM = 1e6
 
+OPTIMALITY_TOL = 1e-5
+
 global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
 global _V
@@ -77,7 +79,7 @@ function initModel(Din,firstIndices,t,dvrhs=[],β=0,phi_u_n=[],xinit=[])
     optimizer = Gurobi.Optimizer #SCS.Optimizer
     m = Model(optimizer)
     set_optimizer_attribute(m, "OutputFlag", 0)
-    set_optimizer_attribute(m, "OptimalityTol", 1e-2)
+    set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
     ptvn = length(_V[1])
     @variable(m,g)
     if isempty(phi_u_n)  # if not given then initialize phi to unity to solve nominal problem
@@ -465,7 +467,7 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
                 histogram(zVar[zVar .> ZNZTH])
                 #savefig("zlikehist.png")
             end
-            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99), " vox num exceeding t: " , numDev, " sum(zVar):", sumZVar)
+            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99), " vox num exceeding t: " , numDev, " sum dbar/(tmax-t) :", sumZVar)
         end
     end
 
