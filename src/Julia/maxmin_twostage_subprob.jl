@@ -74,7 +74,7 @@ function initModel(Din,firstIndices,t,dvrhs=[],β=0,phi_u_n=[],xinit=[])
     optimizer = Gurobi.Optimizer #SCS.Optimizer
     m = Model(optimizer)
     set_optimizer_attribute(m, "OutputFlag", 0)
-    set_optimizer_attribute(m, "OptimalityTol", 1e-2)
+    set_optimizer_attribute(m, "OptimalityTol", 1e-5)
     ptvn = length(_V[1])
     @variable(m,g)
     if isempty(phi_u_n)  # if not given then initialize phi to unity to solve nominal problem
@@ -137,18 +137,20 @@ function initModel(Din,firstIndices,t,dvrhs=[],β=0,phi_u_n=[],xinit=[])
 end
 
 
-function computeProjections(γ, phi_under, phi_bar, uniform_gamma = 0)
+function computeProjections(γ, gamma_const, phi_under, phi_bar)
     n, nn = size(γ)
     g = SimpleWeightedGraph(γ) #n,1:n,1:n,
     println("Started all-pairs-shortest path computations......................")
     dists = zeros(n,n)
-    if uniform_gamma==0
+    if UNIFORM_GAMMA==0
         fws = Parallel.floyd_warshall_shortest_paths(g)
         dists = fws.dists
     else
         for i=1:n
             dists[i,:]=gdistances(g,i)#; sort_alg=RadixSort)
         end
+		dists=dists*gamma_const
+		@show dists[1,2]
     end
     ###################################### save dists for debug
 #    file = matopen("dists.mat", "w")
@@ -165,8 +167,8 @@ function computeProjections(γ, phi_under, phi_bar, uniform_gamma = 0)
     #end
     phi_under_n = maximum(phi_under*ones(1,n)-dists,dims=1)'
     phi_bar_n = minimum(phi_bar*ones(1,n)+dists,dims=1)'
+	@show minimum(phi_bar_n-phi_under_n)
     @assert(all(phi_under_n .<= phi_bar_n))
-    #@assert all(phi_under_n .<= phi_bar_n)
     println("Finished computeProjections")
     return phi_under_n,phi_bar_n, dists
 end
@@ -333,16 +335,17 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
+function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_const,δ, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
+    @show size(γ)
     ptvN, nn = size(γ)
     phi_u_n=[]
     phi_b_n=[]
     dists=[]
-    file_name=@sprintf("Projection_Gamma_%1.3f.jld2",UNIFORM_GAMMA)
+    file_name=@sprintf("Projection_Gamma_%1.3f_%1.3f.jld2",gamma_const,δ)
     if bLOAD_FROM_FILE
         phi_u_n, phi_b_n, dists = FileIO.load(file_name,"phi_u_n","phi_b_n","dists")
     else
-        phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, UNIFORM_GAMMA)
+        phi_u_n, phi_b_n, dists = computeProjections(γ, gamma_const, phi_under, phi_bar)
         FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
     end
     m = initModel(Din,firstIndices,t,dvrhs,β,phi_u_n)

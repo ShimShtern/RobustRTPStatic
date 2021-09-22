@@ -8,17 +8,18 @@ using SparseArrays
 using FileIO, JLD2
 using Printf
 bLOAD_FROM_FILE=true
+bLOAD_FROM_FILE2=false
 
 #file = matopen("liverEx2.mat")
-ρ = [0.99 ; 1; 1]
+ρ = [1;1;1]#[0.99 ; 1; 1]
 #t = [40.0 ; 40.0]
-t = [60; 54; 100]
+t = [62; 54; 100]#[60; 54; 100]
 tmax = [62; 54; 100]
 #β = 0.01
 β = 0 #1e-8
-μ = 1.25 #1.25 #1.1
-gamma_const = 0.04
-δ = 0.05
+μ = 1.25 #parse(Float64,ARGS[1]) 
+gamma_const = 0.04 #parse(Float64,ARGS[2])
+δ = 0.04 #parse(Float64,ARGS[3])#0.05
 file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file,"neighbors_Mat")
 ϕ = read(file,"omf_Vec")
@@ -77,9 +78,16 @@ phi_bar = ϕ.+ δ
 phi_bar[phi_bar.>1].= 1
 
 println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
-time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ,gamma_const,phi_under,phi_bar,200,bLOAD_FROM_FILE)
+time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,γ,gamma_const,δ,phi_under,phi_bar,200,bLOAD_FROM_FILE2)
+@show time_prof
 xx = value.(model[:x])
 g = value.(model[:g])
 PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
-file_name=@sprintf("results_%1.2f_%.2f_%.2f_%.2f.jld2",β,μ,δ,gamma_const)
-FileIO.save(file_name,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar,"t",t,"δ",δ,"μ",μ,"β",β,"gamma_const",gamma_const,"time_prof",time_prof)
+minPhysDose=minimum(D[1:firstIndices[1]-1,:]*xx)
+#file_name=@sprintf("results_%1.3f_%.2f_%.3f_%.2f.jld2",β,μ,δ,gamma_const)
+#FileIO.save(file_name,"δ",δ,"μ",μ,"β",β,"t",t,"gamma_const",gamma_const,"time_prof",time_prof,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar)
+
+summary_file_name="no_dose_vol.txt"
+open(summary_file_name,"a") do io
+    println(io,μ,",",δ,",",gamma_const,",",β,",",t,",",g,",",PhysHom,",",minPhysDose,",",time_prof,",",xx)
+end
