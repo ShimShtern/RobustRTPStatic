@@ -10,14 +10,14 @@ using Printf
 bLOAD_FROM_FILE = false
 
 #file = matopen("liverEx2.mat")
-#ρ = [0.99; 1; 1]
-ρ = [1; 1; 1]
+ρ = [0.99; 1; 1]
+#ρ = [1; 1; 1]
 #t = [40.0 ; 40.0]
 #t = [60; 54; 100]
 t = [60; 54; 100]
 tmax = [62; 54; 100]
 #β = 0.01
-β = 0 #1e-8
+β = 1e-8
 μ = 1.25 #1.25 #1.1
 gamma_const = 0.04
 file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
@@ -30,25 +30,20 @@ firstIndices = []
 
 if bLOAD_FROM_FILE
     D = FileIO.load("D_formatted.jld2", "D")
-    firstIndices, dvrhs =
-        FileIO.load("D_formatted.jld2", "firstIndices", "dvrhs")
+    firstIndices, dvrhs = FileIO.load("D_formatted.jld2", "firstIndices", "dvrhs")
 else
     file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
     inD = read(file, "Dij")
     V = read(file, "V")
     close(file)
-end
-
     println(
         "initial D size: ",
         size(inD),
         "  OAR num (length(V)-1): ",
         length(V) - 1,
         " D nnz: ",
-        nnz(inD),
-    )
+        nnz(inD))
     #println(inD.nzval)
-
     #sumVec = sum(inD,2)
     nonzeroIdxs = unique(inD.rowval) #finall(sumVec->sumVec>0,sumVec)
     println(
@@ -57,15 +52,13 @@ end
         " min: ",
         minimum(nonzeroIdxs),
         " max: ",
-        maximum(nonzeroIdxs),
-    )
+        maximum(nonzeroIdxs))
     nb = size(inD, 2)
-
     D = spzeros(0, nb)
     firstIndices = [] # vector of indices of first voxels for each of the stuctures
     dvrhs = zeros(length(V) - 1)
 
-
+    # skipping the last strucure that includes dead voxels?
     for k = 1:length(V)-1
         if k > 1 #size(D,1)>0
             println(size(D))
@@ -83,8 +76,7 @@ end
             " ",
             typeof(nonzeroIdxs),
             " ",
-            typeof(oarIndices),
-        )
+            typeof(oarIndices))
         #println(minimum(oarIndices), " ", maximum(oarIndices), " ")
         appendD = inD[idxs, :]
         rowN, colN = size(appendD)
@@ -92,13 +84,14 @@ end
             "For organ: ",
             k,
             " appending submat of D of size: ",
-            size(appendD),
-        )
+            size(appendD))
+
         if rowN > 0
             global D = [D; appendD]
             if k > 1
-            dvrhs[k-1] = floor((1 - ρ[k-1]) * length(V[k]))
-            println("DVRHS: ", dvrhs[k-1] , " for organ: ", k-1, )
+                dvrhs[k-1] = floor((1 - ρ[k-1]) * length(V[k]))
+                println("DVRHS: ", dvrhs[k-1] , " for organ: ", k-1)
+            end
         end
     end
     FileIO.save(
@@ -108,8 +101,7 @@ end
         "firstIndices",
         firstIndices,
         "dvrhs",
-        dvrhs,
-    )
+        dvrhs)
 end
 if sum(dvrhs) == 0
     dvrhs = []
@@ -136,14 +128,15 @@ println(
     " max phi_bar = ",
     maximum(phi_bar),
     " max phi_under = ",
-    maximum(phi_under),
-)
+    maximum(phi_under))
+
+#time_prof = @elapsed
 @time model = maxmin_twostage_subprob.robustCuttingPlaneAlg(
     D,
     firstIndices,
     t, #
-    #t,
-    tmax, #tmax,
+    t,
+    #tmax, #tmax,
     dvrhs,
     β,
     μ,
@@ -151,9 +144,8 @@ println(
     gamma_const,
     phi_under,
     phi_bar,
-    200,
-    bLOAD_FROM_FILE,
-)
+    100,
+    bLOAD_FROM_FILE)
 xx = value.(model[:x])
 g = value.(model[:g])
 zz = []
@@ -165,31 +157,35 @@ PhysHom =
     maximum(D[1:firstIndices[1]-1, :] * xx) /
     minimum(D[1:firstIndices[1]-1, :] * xx)
 file_name = @sprintf("results_%1.2f_%.2f_%.2f_%.2f.jld2", β, μ, δ, gamma_const)
-FileIO.save(
-    file_name,
-    "xx",
-    xx,
-    "g",
-    g,
-    "zz",
-    zz,
-    "PhysHom",
-    PhysHom,
-    "phi_under",
-    phi_under,
-    "phi_bar",
-    phi_bar,
-    "t",
-    t,
-    "δ",
-    δ,
-    "μ",
-    μ,
-    "β",
-    β,
-    "gamma_const",
-    gamma_const,
-)
+#FileIO.save(
+#    file_name,
+#    "xx",
+#    xx,
+#    "g",
+#    g,
+#    "zz",
+#    zz,
+#    "PhysHom",
+#    PhysHom,
+#    "phi_under",
+#    phi_under,
+#    "phi_bar",
+#    phi_bar,
+#    "t",
+#    t,
+#    "δ",
+#    δ,
+#    "μ",
+#    μ,
+#    "β",
+#    β,
+#    "gamma_const",
+#    gamma_const,
+#)
+
+PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
+file_name=@sprintf("results_%1.2f_%.2f_%.2f_%.2f.jld2",β,μ,δ,gamma_const)
+FileIO.save(file_name,"xx",xx,"g",g,"zz",zz,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar,"t",t,"δ",δ,"μ",μ,"β",β,"gamma_const",gamma_const)#,"time_prof",time_prof)
 
 maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) # print out verbose output
 
@@ -200,6 +196,3 @@ maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) #
 #time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ,gamma_const,phi_under,phi_bar,200,bLOAD_FROM_FILE)
 #xx = value.(model[:x])
 #g = value.(model[:g])
-#PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
-#file_name=@sprintf("results_%1.2f_%.2f_%.2f_%.2f.jld2",β,μ,δ,gamma_const)
-#FileIO.save(file_name,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar,"t",t,"δ",δ,"μ",μ,"β",β,"gamma_const",gamma_const,"time_prof",time_prof)
