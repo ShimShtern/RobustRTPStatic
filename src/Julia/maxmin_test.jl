@@ -7,19 +7,20 @@ using JuMP
 using SparseArrays
 using FileIO, JLD2
 using Printf
-bLOAD_FROM_FILE = false
+bLOAD_FROM_FILE=false
+bLOAD_FROM_FILE2=false
 
 #file = matopen("liverEx2.mat")
 ρ = [0.99; 1; 1]
 #ρ = [1; 1; 1]
 #t = [40.0 ; 40.0]
-#t = [60; 54; 100]
-t = [60; 54; 100]
+#t = [62; 54; 100]
+t=[60; 54; 100]
 tmax = [62; 54; 100]
 #β = 0.01
 β = 1e-8
 μ = 1.25 #1.25 #1.1
-gamma_const = 0.04
+gamma_const = 1 #0.04
 file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file, "neighbors_Mat")
 ϕ = read(file, "omf_Vec")
@@ -111,88 +112,39 @@ println(firstIndices)
 @assert(size(γ, 1) == firstIndices[1] - 1)#need to make sure these are the same
 #m = maxmin_twostage_subprob.initModel(D,firstIndices,t,dvrhs,β)
 #m = maxmin_twostage_subprob.solveModel!(m)
-
 #for
-δ = 0.05 #0:0.01:0.1  #0.05
+δ=0.05 #0.01:0.01:0.1
+phi_under = ϕ.- δ
+phi_under[phi_under.<0].= 0
+phi_bar = ϕ.+ δ
+phi_bar[phi_bar.>1].= 1
 
-phi_under = ϕ .- δ
-phi_under[phi_under.<0] .= 0
-phi_bar = ϕ .+ δ
-phi_bar[phi_bar.>1] .= 1
 
-println(
-    "Now solving with min phi bar = ",
-    minimum(phi_bar),
-    " min phi_under = ",
-    minimum(phi_under),
-    " max phi_bar = ",
-    maximum(phi_bar),
-    " max phi_under = ",
-    maximum(phi_under))
-
-#time_prof = @elapsed
-@time model = maxmin_twostage_subprob.robustCuttingPlaneAlg(
-    D,
-    firstIndices,
-    t, #
-    t,
-    #tmax, #tmax,
-    dvrhs,
-    β,
-    μ,
-    γ,
-    gamma_const,
-    phi_under,
-    phi_bar,
-    100,
-    bLOAD_FROM_FILE)
-xx = value.(model[:x])
-g = value.(model[:g])
-zz = []
-if !isempty(dvrhs)
-    zz = value.(model[:z])
+println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
+ptvN, nn = size(γ)
+phi_u_n=[]
+phi_b_n=[]
+dists=[]
+file_name=@sprintf("Projection_Gamma_%1.3f_%1.3f.jld2",gamma_const,δ)
+if bLOAD_FROM_FILE2
+    phi_u_n, phi_b_n, dists = FileIO.load(file_name,"phi_u_n","phi_b_n","dists")
+else
+    phi_u_n, phi_b_n, dists = maxmin_twostage_subprob.computeProjections(γ, gamma_const, phi_under, phi_bar)
+    FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
 end
 
-PhysHom =
-    maximum(D[1:firstIndices[1]-1, :] * xx) /
-    minimum(D[1:firstIndices[1]-1, :] * xx)
-file_name = @sprintf("results_%1.2f_%.2f_%.2f_%.2f.jld2", β, μ, δ, gamma_const)
-#FileIO.save(
-#    file_name,
-#    "xx",
-#    xx,
-#    "g",
-#    g,
-#    "zz",
-#    zz,
-#    "PhysHom",
-#    PhysHom,
-#    "phi_under",
-#    phi_under,
-#    "phi_bar",
-#    phi_bar,
-#    "t",
-#    t,
-#    "δ",
-#    δ,
-#    "μ",
-#    μ,
-#    "β",
-#    β,
-#    "gamma_const",
-#    gamma_const,
-#)
-
-PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
-file_name=@sprintf("results_%1.2f_%.2f_%.2f_%.2f.jld2",β,μ,δ,gamma_const)
-FileIO.save(file_name,"xx",xx,"g",g,"zz",zz,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar,"t",t,"δ",δ,"μ",μ,"β",β,"gamma_const",gamma_const)#,"time_prof",time_prof)
+time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,phi_u_n, phi_b_n, dists,200)
+@show time_prof
 
 maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) # print out verbose output
 
-
-#end
-
-#println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
-#time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,dvrhs,β,μ,γ,gamma_const,phi_under,phi_bar,200,bLOAD_FROM_FILE)
-#xx = value.(model[:x])
-#g = value.(model[:g])
+xx = value.(model[:x])
+g = value.(model[:g])
+PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
+minPhysDose=minimum(D[1:firstIndices[1]-1,:]*xx)
+#file_name=@sprintf("results_%1.3f_%.2f_%.3f_%.2f.jld2",β,μ,δ,gamma_const)
+#FileIO.save(file_name,"δ",δ,"μ",μ,"β",β,"t",t,"gamma_const",gamma_const,"time_prof",time_prof,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar)
+summary_file_name="no_dose_vol.txt" # not recommended that 2 processes print to same file -- check with shimrit
+open(summary_file_name,"a") do io
+    println(io,μ,",",δ,",",gamma_const,",",β,",",t,",",g,",",PhysHom,",",minPhysDose,",",time_prof,",",xx)
+end

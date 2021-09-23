@@ -17,7 +17,7 @@ using Printf
 #using Plots
 INITXNORM = 100
 
-VIOL_EPS = 1e-3
+VIOL_EPS = 1e-2
 DBARNZTH = 1e-4
 ZNZTH = 1e-4
 BIG_OBJ = 1e8
@@ -32,7 +32,7 @@ LAZYCONS_TIGHT_TH = 0.2
 MAX_VIOL_RATIO_TH = 0.2
 
 MAX_V_CONS = 10 #can be set to infinity
-MAX_VIOL_EPS = 1e-3
+MAX_VIOL_EPS = 1e-2
 MAX_VIOL_EPS_INIT = 10
 
 SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
@@ -47,7 +47,7 @@ global _V
 global _N # voxels by organ not loaded into optimization
 
 
-export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume
+export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume, computeProjections
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
@@ -144,18 +144,20 @@ function initModel(Din,firstIndices,t,tmax,dvrhs=[],β=0,phi_u_n=[],xinit=[])
 end
 
 
-function computeProjections(γ, phi_under, phi_bar, uniform_gamma = 0)
+function computeProjections(γ, gamma_const, phi_under, phi_bar)
     n, nn = size(γ)
     g = SimpleWeightedGraph(γ) #n,1:n,1:n,
     println("Started all-pairs-shortest path computations......................")
     dists = zeros(n,n)
-    if uniform_gamma==0
+    if UNIFORM_GAMMA==0
         fws = Parallel.floyd_warshall_shortest_paths(g)
         dists = fws.dists
     else
         for i=1:n
             dists[i,:]=gdistances(g,i)#; sort_alg=RadixSort)
         end
+		dists=dists*gamma_const
+		@show dists[1,2]
     end
     ###################################### save dists for debug
 #    file = matopen("dists.mat", "w")
@@ -172,8 +174,8 @@ function computeProjections(γ, phi_under, phi_bar, uniform_gamma = 0)
     #end
     phi_under_n = maximum(phi_under*ones(1,n)-dists,dims=1)'
     phi_bar_n = minimum(phi_bar*ones(1,n)+dists,dims=1)'
+	@show minimum(phi_bar_n-phi_under_n)
     @assert(all(phi_under_n .<= phi_bar_n))
-    #@assert all(phi_under_n .<= phi_bar_n)
     println("Finished computeProjections")
     return phi_under_n,phi_bar_n, dists
 end
@@ -349,19 +351,9 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
+function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, L=1)
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
-    ptvN, nn = size(γ)
-    phi_u_n=[]
-    phi_b_n=[]
-    dists=[]
-    file_name=@sprintf("Projection_Gamma_%1.3f.jld2",UNIFORM_GAMMA)
-    if bLOAD_FROM_FILE
-        phi_u_n, phi_b_n, dists = FileIO.load(file_name,"phi_u_n","phi_b_n","dists")
-    else
-        phi_u_n, phi_b_n, dists = computeProjections(γ, phi_under, phi_bar, UNIFORM_GAMMA)
-        FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
-    end
+
     m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n)
     iter=0
     addedDVCons = false
