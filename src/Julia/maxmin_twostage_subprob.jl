@@ -353,6 +353,7 @@ end
 
 function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, L=1)
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
+    ptvN, nn = size(Din)
 
     m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n)
     iter=0

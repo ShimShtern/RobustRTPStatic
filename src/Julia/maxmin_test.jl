@@ -121,7 +121,6 @@ phi_bar[phi_bar.>1].= 1
 
 
 println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
-ptvN, nn = size(γ)
 phi_u_n=[]
 phi_b_n=[]
 dists=[]
