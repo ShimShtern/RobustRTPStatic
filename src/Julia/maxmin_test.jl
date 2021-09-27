@@ -132,7 +132,7 @@ else
     FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
 end
 
-time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,phi_u_n, phi_b_n, dists,200)
+time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
 @show time_prof
 
 maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) # print out verbose output
