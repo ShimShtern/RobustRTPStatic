@@ -17,7 +17,7 @@ using Printf
 #using Plots
 INITXNORM = 100
 
-VIOL_EPS = 1e-3
+VIOL_EPS = 1e-2
 DBARNZTH = 1e-4
 ZNZTH = 1e-4
 BIG_OBJ = 1e8
@@ -32,7 +32,7 @@ LAZYCONS_TIGHT_TH = 0.2
 MAX_VIOL_RATIO_TH = 0.2
 
 MAX_V_CONS = 10 #can be set to infinity
-MAX_VIOL_EPS = 1e-3
+MAX_VIOL_EPS = 1e-2
 MAX_VIOL_EPS_INIT = 10
 
 SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
@@ -66,7 +66,7 @@ function initDoseVolume(m, t, tmax, dvrhs)
 end
 
 #
-function initModel(Din,firstIndices,t,dvrhs=[],β=0,phi_u_n=[],xinit=[])
+function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,xinit=[])
 
     n, nb = size(Din)
     #_rowLoc = spzeros(n,1)
@@ -98,34 +98,42 @@ function initModel(Din,firstIndices,t,dvrhs=[],β=0,phi_u_n=[],xinit=[])
 
     firstIndices = [firstIndices; n+1]
     for k = 1:length(firstIndices)-1
+        oarIdxs = firstIndices[k]:firstIndices[k+1]-1
+        if tmax[k] > t[k] && !isempty(dvrhs)
+            @variable(m, z[oarIdxs]==0)
+            @constraint(m,dos_vol[k],sum(z[i] for i in oarIdxs) <= dvrhs[k] )
+        end
+
         if firstIndices[k+1]-firstIndices[k] <= LAZY_CONS_PERORGAN_TH
-            _V[k+1] =  firstIndices[k]:firstIndices[k+1]-1
+            _V[k+1] =  oarIdxs#firstIndices[k]:firstIndices[k+1]-1
             #if (!isempty(dvrhs) &&  t[k] < tmax[k] ) ||
             if β>0
                 for i in _V[k+1]
-                    dbar[i] = @variable(m,lower_bound=0)
+                    dbar[i] = @variable(m,lower_bound=0,upper_bound=tmax[k]-t[k])
                 end
                 @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
             else
-                #    if t[k]<tmax[k]
-                #        unfix(z[_V[k+1]])
-                #        set_lower_bound(z[_V[k+1]],0)
-                #        set_upper_bound(z[_V[k+1]],1)
-                #        @constraint(m, [i in _V[k+1]], dbar[i] <= (tmax[k]-t[k])*z[k])
-                #    end
-                # else
-                @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) <= t[k])
+                if t[k] < tmax[k] && !isempty(dvrhs)
+                    unfix(z[_V[k+1]])
+                    set_lower_bound(z[_V[k+1]],0)
+                    set_upper_bound(z[_V[k+1]],1)
+                    @constraint(m, [i in _V[k+1]], dbar[i] <= (tmax[k]-t[k])*z[k])
+                    @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                else
+                     @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) <= t[k])
+                end
             end
         else
-            _N[k+1] = firstIndices[k]:firstIndices[k+1]-1
+            _N[k+1] = oarIdxs #firstIndices[k]:firstIndices[k+1]-1
         end
     end
 
-    addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t,t,β)
+    addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t,tmax,β,false,isempty(dvrhs))
     @show length(_V)
 
     if β > 0 # penalty coefficient of DV related term in objective
         dbar = m[:dbar]
+#        @objective(m, Max, g-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
         @objective(m, Max, g-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
     else
         @objective(m, Max, g)
@@ -139,11 +147,11 @@ end
 function computeProjections(γ, gamma_const, phi_under, phi_bar)
     n, nn = size(γ)
     g = SimpleWeightedGraph(γ) #n,1:n,1:n,
-    println("Started all-pairs-shortest path computations......................")
+#    println("Started all-pairs-shortest pth computations")
     dists = zeros(n,n)
     if UNIFORM_GAMMA==0
-        fws = Parallel.floyd_warshall_shortest_paths(g)
-        dists = fws.dists
+        fws = Parallel.floyd_warshall_shortest_aths(g)
+        dists = fws.dist
     else
         for i=1:n
             dists[i,:]=gdistances(g,i)#; sort_alg=RadixSort)
@@ -195,7 +203,7 @@ function solveModel!(m,firstIndices)
     return m
 end
 
-function addMostViolated!(m, n, x, t, tmax, β, forDVOnly = false)
+function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = false)
     #adds n most violated constraints
     # m - model
     # n - num constraint per organ to add
@@ -208,20 +216,27 @@ function addMostViolated!(m, n, x, t, tmax, β, forDVOnly = false)
     max_viol_aor = 0.0
     for k in 1:length(_N)-1
         indicesToAdd = []
-        if (length(_N[k+1]) > 0 && !forDVOnly) || tmax[k] > t[k]
+        if (length(_N[k+1]) > 0 && !fromVOnly) || tmax[k] > t[k]
             z = []
+            #if tmax[k] == t[k]
+            #if !fromVOnly
             voxIdxs = []
-            if tmax[k] == t[k]
+            if !fromVOnly
                 voxIdxs = _N[k+1]
-            else
-            #if tmax[k] > t[k]
+            end
+            #else
+            #else #if tmax[k] > t[k]
+            if tmax[k] > t[k] && !noDVCons
                 z = m[:z]
-                for i in _V[k+1]
-                    if is_fixed(z[i])
-                        push!(voxIdxs,i)
+                if fromVOnly
+                    for i in _V[k+1]
+                        if is_fixed(z[i])
+                            push!(voxIdxs,i)
+                        end
                     end
                 end
             end
+
             viol = vec(_D[voxIdxs,:]*x .- t[k])
             n_min=min(n,length(viol))
             violIdxs = partialsortperm(viol,1:n_min,rev=true)
@@ -241,7 +256,7 @@ function addMostViolated!(m, n, x, t, tmax, β, forDVOnly = false)
                 end
                 if first_not_viol_ind>1
                     violIdxs = sort!(violIdxs[1:first_not_viol_ind-1])
-                    if tmax[k]==t[k]
+                    if !fromVOnly # tmax[k]==t[k]
                         indicesToAdd = _N[k+1][violIdxs]
                         append!(_V[k+1], indicesToAdd) #union!(_V[k+1],indicesToAdd)
                         deleteat!(_N[k+1], violIdxs)
@@ -253,28 +268,32 @@ function addMostViolated!(m, n, x, t, tmax, β, forDVOnly = false)
             num_const_added_aor += length(indicesToAdd)
             xx = m[:x]
             dbar = []
-
             if t[k]<tmax[k] || β > 0
                 dbar = m[:dbar]
             end
             for l=1:length(indicesToAdd)
                 if β>0 || t[k]<tmax[k]
-                    dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, start = viol[violIdxs[l]])
-                end
-                if t[k]<tmax[k]
-                    @assert(tmax[k]-t[k] >= 1)
-                    unfix(z[indicesToAdd[l]])
-                    set_start_value(z[indicesToAdd[l]],1/(tmax[k]-t[k]))
-                    set_lower_bound(z[indicesToAdd[l]],0)
-                    set_upper_bound(z[indicesToAdd[l]],1)
+                    dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k],start = viol[violIdxs[l]])
+                    if t[k]<tmax[k] && !noDVCons
+                        @assert(tmax[k]-t[k] >= 1)
+                        unfix(z[indicesToAdd[l]])
+                        set_start_value(z[indicesToAdd[l]],1/(tmax[k]-t[k]))
+                        set_lower_bound(z[indicesToAdd[l]],0)
+                        set_upper_bound(z[indicesToAdd[l]],1)
+                    end
                 end
             end
             if β > 0
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
                 obj = objective_function(m, QuadExpr)
-                @objective(m, Max, obj-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for i in indicesToAdd))
-            elseif t[k]<tmax[k]
-                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                #@objec#tive(m, M#ax, ob#j-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for i in indicesToAdd))
+                @objective(m, Max, obj-β*sum(dbar[i] for i in indicesToAdd))
+            end
+
+            if t[k]<tmax[k] && !noDVCons
+                if β==0
+                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
+                end
                 @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
             else
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
@@ -336,20 +355,11 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_const, phi_under,phi_bar, L=1, bLOAD_FROM_FILE=false)
+function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, L=1)
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
-    ptvN, nn = size(γ)
-    phi_u_n=[]
-    phi_b_n=[]
-    dists=[]
-    file_name=@sprintf("Projection_Gamma_%1.3f_%1.3f.jld2",gamma_const,δ)
-    if bLOAD_FROM_FILE
-        phi_u_n, phi_b_n, dists = FileIO.load(file_name,"phi_u_n","phi_b_n","dists")
-    else
-        phi_u_n, phi_b_n, dists = computeProjections(γ, gamma_const, phi_under, phi_bar)
-        FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
-    end
-    m = initModel(Din,firstIndices,t,dvrhs,β,phi_u_n)
+    ptvN = firstIndices[1]-1
+
+    m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n)
     iter=0
     addedDVCons = false
     stage = 1
@@ -364,17 +374,20 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
         @time for it = 1:MAX_LAZY_CON_IT
             solveModel!(m,firstIndices)
             newObj=JuMP.objective_value(m)
-            if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || (max_viol_aor<=MAX_VIOL_EPS && (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
+              ########### exit inner loop if relative decrease in obj fun less than threshold or absolute diff and in the first stage or otherwise if violation less than threshold without dv cons or in dose vol
+            if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || max_viol_aor<=MAX_VIOL_EPS #&& (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
                 println("Terminating lazy cons loop at It= ", it)
                 flush(stdout)
                 break
             end
-            if stage == 2 && !isempty(dvrhs)
+            #if stage == 2 && !isempty(dvrhs)
                 # add constraints with dbar variables and t RHS only for organs k with tmax[k] > t[k]
-                max_viol_dev , num_const_added_wdv = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β,true)
-                println("Max violation wrt to t in _V: ", max_viol_dev, " Num of cons with dev added: ", num_const_added_wdv)
-            end
-            max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), tmax, tmax,β)
+            #    max_viol_dev , num_const_added_wdv = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β,true)
+            #    println("Max violation wrt to t in _V: ", max_viol_dev, " Num of cons with dev added: ", num_const_added_wdv)
+                max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β,false,isempty(dvrhs))
+            #else
+            #    max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), tmax, tmax,β)
+            #end
             sum_num_const_added_aor+=num_const_added_aor
             @show max_viol_aor, num_const_added_aor
             prev_viol_aor = max_viol_aor
@@ -390,7 +403,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
         d = _D[1:ptvN,:]*xx
         @show minimum(d), maximum(d)
         @time min_hom_viol, max_hom_viol=addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
-        if stage==2 && max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS && (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
+        if stage==2 && max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS #&& (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
             println("Terminating cut algorithm.. iter=", iter)
             break
         elseif !isempty(consCollect)
@@ -400,11 +413,10 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, γ, gamma_co
         else
             if stage == 1
                 println("Switching to stage 2 ******")
-                #zVar = variable_by_name(m, "z")
-                if !isempty(dvrhs) && !addedDVCons
-                    initDoseVolume(m,t,tmax,dvrhs)
-                    addedDVCons = true
-                end
+                #if !isempty(dvrhs) && !addedDVCons
+                #    initDoseVolume(m,t,tmax,dvrhs)
+                #    addedDVCons = true
+                #end
             end
             stage=2
             #set_optimizer_attribute(m, "OptimalityTol", 1e-3)  # tighten tolerance in 2nd phase of the algorithm
@@ -466,7 +478,10 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
             sumZVar = 0
             if !isempty(zVar)
                 sumZVar = sum(zVar)
-                histogram(zVar[zVar .> ZNZTH])
+                nzZ = zVar[zVar .> ZNZTH]
+                if !isempty(nzZ)
+                    histogram(nzZ)
+                end
                 #savefig("zlikehist.png")
             end
             println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99), " vox num exceeding t: " , numDev, " sum dbar/(tmax-t) :", sumZVar)
@@ -481,7 +496,9 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
             zVarVal = value.(zVar)
             #I = axes(zVarVal,Axis{1})
             nzZVal = zVarVal.data[zVarVal.data .> ZNZTH]
-            histogram(nzZVal)
+            if !isempty(nzZVal)
+                histogram(nzZVal)
+            end
             #savefig("zhist.png")
         else
             println("z var not created")
