@@ -47,7 +47,7 @@ global _V
 global _N # voxels by organ not loaded into optimization
 
 
-export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume
+export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume, computeProjections
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
