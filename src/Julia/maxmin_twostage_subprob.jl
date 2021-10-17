@@ -483,7 +483,7 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
                 sumZVar = sum(zVar)
                 nzZ = zVar[zVar .> ZNZTH]
                 if !isempty(nzZ)
-                    histogram(nzZ)
+                #    histogram(nzZ)
                 end
                 #savefig("zlikehist.png")
             end
