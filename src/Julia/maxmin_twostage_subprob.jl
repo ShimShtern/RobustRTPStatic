@@ -3,13 +3,13 @@ using MAT
 using JuMP
 using Gurobi
 #using SCS
-using UnicodePlots
+#using UnicodePlots
 using SparseArrays
 using LinearAlgebra
 using LightGraphs, SimpleWeightedGraphs
-using DataStructures
 using SortingAlgorithms
 using Statistics
+using DataStructures
 import LightGraphs.Parallel
 using FileIO, JLD2
 using Printf
@@ -144,20 +144,23 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,xinit=[])
 end
 
 
-function computeProjections(γ, gamma_const, phi_under, phi_bar)
+function computeProjections(γ, gamma_func, phi_under, phi_bar,dists=[])
     n, nn = size(γ)
     g = SimpleWeightedGraph(γ) #n,1:n,1:n,
 #    println("Started all-pairs-shortest pth computations")
-    dists = zeros(n,n)
-    if UNIFORM_GAMMA==0
-        fws = Parallel.floyd_warshall_shortest_aths(g)
-        dists = fws.dist
-    else
-        for i=1:n
-            dists[i,:]=gdistances(g,i)#; sort_alg=RadixSort)
-        end
-		dists=dists*gamma_const
-		@show dists[1,2]
+	if dists==[]
+    	dists = zeros(n,n)
+    	if UNIFORM_GAMMA==0
+        	fws = Parallel.floyd_warshall_shortest_aths(g)
+        	dists = fws.dist
+    	else
+        	for i=1:n
+            	dists[i,:]=gdistances(g,i)#; sort_alg=RadixSort)
+				for j=1:n
+					dists[i,j]=gamma_func(dists[i,j])
+				end
+        	end
+		end
     end
     ###################################### save dists for debug
 #    file = matopen("dists.mat", "w")
@@ -474,7 +477,7 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
                 sumZVar = sum(zVar)
                 nzZ = zVar[zVar .> ZNZTH]
                 if !isempty(nzZ)
-                    histogram(nzZ)
+                #    histogram(nzZ)
                 end
                 #savefig("zlikehist.png")
             end
@@ -491,7 +494,7 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
             #I = axes(zVarVal,Axis{1})
             nzZVal = zVarVal.data[zVarVal.data .> ZNZTH]
             if !isempty(nzZVal)
-                histogram(nzZVal)
+            #    histogram(nzZVal)
             end
             #savefig("zhist.png")
         else

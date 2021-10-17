@@ -6,7 +6,7 @@ using SparseArrays
 using FileIO, JLD2
 using Printf
 bLOAD_FROM_FILE=true
-bLOAD_FROM_FILE2=false
+bLOAD_FROM_FILE2=true
 
 ρ = [1;1;1]#[0.99 ; 1; 1]
 β = 0 #1e-8
@@ -108,10 +108,17 @@ if sum(dvrhs) == 0
 end
 inD = []
 println(firstIndices)
+Ɣ_start = 0.06
+Ɣ_end = 0.06
+δ_end = 0
+δ_start = Dict(0 => 0.05, 0.01 => 0.03, 0.02 => 0.02, 0.03 => 0.02, 0.04 => 0.01, 0.05 => 0.01, 0.06 => 0, 0.07 => 0, 0.08 => 0, 0.09 => 0, 0.1 => 0)
+
+summary_file_name="solution_evaluation.txt"
 @assert(size(γ, 1) == firstIndices[1] - 1)#need to make sure these are the same
-XLSX.openxlsx("C:/Users/Shim/Dropbox (MIT)/technion/research/Robust Radiotherapy/Results/nominal_solutions.xlsx",mode="rw") do xf
-    sh = xf["nominal_solutions"]
-    sh2= xf["nominal_evaluation"]
+XLSX.openxlsx("no_dose_vol.xlsx",mode="rw") do xf
+    sh = xf["no_dose_vol"]
+    #sh2= xf["no_dose_vol"]
+	new_r = 1
     for r in XLSX.eachtablerow(sh)
         number_of_organs=length(ρ)
         number_of_beamlets=size(D,2)
@@ -122,26 +129,41 @@ XLSX.openxlsx("C:/Users/Shim/Dropbox (MIT)/technion/research/Robust Radiotherapy
         t_max=t
         x=zeros(number_of_beamlets,1)
         for i=1:number_of_beamlets
-            x[i]=r[(4+number_of_organs+4+i)]
+			x[i]=r[(4+number_of_organs+4+i)]
         end
-        d = D*x
-        μ_origin=r[1]
-        new_r = 57
-        δ_start = Dict(0 => 0.05, 0.01 => 0.03, 0.02 => 0.03, 0.03 => 0.02, 0.04 => 0.01, 0.05 => 0.01, 0.06 => 0, 0.07 => 0, 0.08 => 0, 0.09 => 0, 0.1 => 0)
-        for gamma_const in 0:0.01:0.1
-            for δ in δ_start[gamma_const]:0.01:0.1
-                new_r += 1
-                @show new_r
-                phi_under = ϕ.- δ
-                phi_under[phi_under.<0].= 0
-                phi_bar = ϕ.+ δ
-                phi_bar[phi_bar.>1].= 1
-                println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
-                time_prof=@elapsed g, μ=evaluate_solution.EvaluateSolution(d,firstIndices,γ,gamma_const,δ,phi_under,phi_bar,bLOAD_FROM_FILE2)
-                sh2[new_r,:]=vec(hcat(μ_origin,t',δ,gamma_const,μ,g))
-            end
-        end
+		
+		μ_origin=r[1]
+		δ_origin=r[2]
+		Ɣ_origin=r[3]
+			
+		if sum(x)!=0
+			d = D*x
+			for gamma_const in Ɣ_start:0.01:Ɣ_end
+				for δ in δ_start[gamma_const]:0.01:δ_end
+					new_r += 1
+					@show new_r
+					phi_under = ϕ.- δ
+					phi_under[phi_under.<0].= 0
+					phi_bar = ϕ.+ δ
+					phi_bar[phi_bar.>1].= 1
+					println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
+					time_prof=@elapsed g, μ=evaluate_solution.EvaluateSolution(d,firstIndices,γ,gamma_const,δ,phi_under,phi_bar,bLOAD_FROM_FILE2)
+					#sh2[new_r,:]=vec(hcat(μ_origin,t',δ,gamma_const,μ,g))
+					open(summary_file_name,"a") do io
+						println(io,μ_origin,",",δ_origin,",",Ɣ_origin,",",t',",",δ,",",gamma_const,",",μ,",",g)
+					end
+				end
+			end
+		else
+			for gamma_const in Ɣ_start:0.01:Ɣ_end
+				for δ in δ_start[gamma_const]:0.01:δ_end
+					open(summary_file_name,"a") do io
+						println(io,μ_origin,",",δ_origin,",",Ɣ_origin,",",t',",",δ,",",gamma_const,",","NaN",",",0)
+					end
+				end
+			end
+		end
     end
 end
 
-end
+
