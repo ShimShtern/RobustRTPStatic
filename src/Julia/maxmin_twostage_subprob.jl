@@ -167,11 +167,6 @@ function computeProjections(γ, gamma_const, phi_under, phi_bar)
     println("Finished all-pairs-shortest path computations")
     phi_under_n = phi_under
     phi_bar_n = phi_bar
-    # for i in 1:n
-    #    phi_under_n[i] = maximum(phi_under[j]-dists[i,j] for j in 1:n)
-    #    phi_bar_n[i] = minimum(phi_bar[j]+dists[i,j] for j in 1:n)
-    #    @assert(phi_under_n[i] <= phi_bar_n[i])
-    #end
     phi_under_n = maximum(phi_under*ones(1,n)-dists,dims=1)'
     phi_bar_n = minimum(phi_bar*ones(1,n)+dists,dims=1)'
 	@show minimum(phi_bar_n-phi_under_n)
@@ -284,19 +279,18 @@ function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = fa
                 end
             end
             if β > 0
-                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
                 obj = objective_function(m, QuadExpr)
                 #@objec#tive(m, M#ax, ob#j-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for i in indicesToAdd))
                 @objective(m, Max, obj-β*sum(dbar[i] for i in indicesToAdd))
             end
 
-            if t[k]<tmax[k] && !noDVCons
-                if β==0
-                    @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
-                end
-                @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
+            if t[k]<tmax[k] && (!noDVCons || β > 0)
+                @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
             else
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) <= t[k])
+            end
+            if t[k]<tmax[k] && !noDVCons
+                @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
             end
         end
         println("Number of voxels in _V ", length(_V[k+1]), " voxels in _N: ",  length(_N[k+1])  , " OAR: ", k+1, " cons added: ", length(indicesToAdd))

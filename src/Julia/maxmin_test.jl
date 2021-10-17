@@ -133,6 +133,7 @@ else
 end
 
 time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
+
 @show time_prof
 
 maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) # print out verbose output
