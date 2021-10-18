@@ -12,11 +12,11 @@ bLOAD_FROM_FILE_gamma=true
 bLOAD_FROM_FILE_projection = false
 
 #file = matopen("liverEx2.mat")
-ρ = [0.99; 1; 1]
-#ρ = [1; 1; 1]
+#ρ = [0.99; 1; 1]
+ρ = [1; 1; 1]
 #t = [40.0 ; 40.0]
-#t = [62; 54; 100]
-t=[60; 54; 100]
+t = [62; 54; 100]
+#t=[60; 54; 100]
 tmax = [62; 54; 100]
 #β = 0.01
 β = 0 #1e-8

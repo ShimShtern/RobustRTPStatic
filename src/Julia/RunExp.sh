@@ -1,9 +1,10 @@
 #!/usr/bin/bash
+MAXPROCS=9
 
 for mu in 1.1
 #{1.05,1.1,1.15,1.2}
-#,1.25} 
-do	
+#,1.25}
+do
 	for gamma in {0,1,2,3,4,5}
 	do
 		gamma_step=0.01
@@ -18,7 +19,9 @@ do
 			echo output_${mu}_${gamma_new}_${delta_new}.txt
 			julia maxmin_test.jl $mu $gamma_new $delta_new &> ./Logs/output_${mu}_${gamma_new}_${delta_new}.txt &
 			sleep 1
+			if [ $(jobs -r | wc -l) -ge $MAXPROCS ]; then
+      	wait $(jobs -r -p | head -1)
+			fi
 		done
-		wait
-	done	
-done	
+	done
+done
