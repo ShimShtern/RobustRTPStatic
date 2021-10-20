@@ -8,8 +8,10 @@ using SparseArrays
 using FileIO, JLD2
 using Printf
 bLOAD_FROM_FILE=true
-bLOAD_FROM_FILE_gamma=true
+bLOAD_FROM_FILE_gamma=false
 bLOAD_FROM_FILE_projection = false
+bSAVE_FILES = true
+bSAVE_DISTORPROJ_FILES = true
 
 #file = matopen("liverEx2.mat")
 #ρ = [0.99; 1; 1]
@@ -39,6 +41,7 @@ close(file)
 
 D = []
 firstIndices = []
+dvrhs = []
 
 if bLOAD_FROM_FILE
     D = FileIO.load("D_formatted.jld2", "D")
@@ -106,16 +109,18 @@ else
             end
         end
     end
-    FileIO.save(
-        "D_formatted.jld2",
-        "D",
-        D,
-        "firstIndices",
-        firstIndices,
-        "dvrhs",
-        dvrhs)
+    if bSAVE_FILES
+        FileIO.save(
+            "D_formatted.jld2",
+            "D",
+            D,
+            "firstIndices",
+            firstIndices,
+            "dvrhs",
+            dvrhs)
+    end
 end
-if sum(dvrhs) == 0
+if sum(tmax-t) == 0 || sum(dvrhs) == 0
     dvrhs = []
 end
 inD = []
@@ -145,10 +150,12 @@ if bLOAD_FROM_FILE_projection*bLOAD_FROM_FILE_gamma
     phi_u_n, phi_b_n = FileIO.load(file_name_proj,"phi_u_n","phi_b_n")
 else
     phi_u_n, phi_b_n, dists = maxmin_twostage_subprob.computeProjections(γ, gamma_func, phi_under, phi_bar, dists)
-    if !bLOAD_FROM_FILE_gamma
-        FileIO.save(file_name_gamma,"dists",dists)
+    if bSAVE_DISTORPROJ_FILES
+        if !bLOAD_FROM_FILE_gamma
+            FileIO.save(file_name_gamma,"dists",dists)
+        end
+        FileIO.save(file_name_proj,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n)
     end
-    FileIO.save(file_name_proj,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n)
 end
 
 time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
