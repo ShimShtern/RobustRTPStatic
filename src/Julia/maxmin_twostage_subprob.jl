@@ -66,7 +66,7 @@ function initDoseVolume(m, t, tmax, dvrhs)
 end
 
 #
-function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,xinit=[])
+function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ=[0;0],ϕ_nom=0,xinit=[])
 
     n, nb = size(Din)
     #_rowLoc = spzeros(n,1)
@@ -82,7 +82,7 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,xinit=[])
     set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
     ptvn = length(_V[1])
     @variable(m,g)
-    if isempty(phi_u_n)  # if not given then initialize phi to unity to solve nominal problem
+    if isempty(phi_u_n)  # if not given then initialize phi to unity to solve problem with physical dose
         phi_u_n = ones(ptvn,1)
         phi_b_n = ones(ptvn,1)
     end
@@ -130,13 +130,25 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,xinit=[])
 
     addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t,tmax,β,false,isempty(dvrhs))
     @show length(_V)
-
+	if λ[1] > 0
+		@expression(m, reg1, λ[1]*sum(x[i] for i=1nb))
+	else
+		@expression(m, reg1, 0)
+	end
+	if λ[2] > 0
+		@variable(m,g_nom)
+		print(size(ϕ_nom))
+		@constraint(m,cons_ptv_reg2[i in _V[1]], g_nom <= ϕ_nom[i]*Din[i,:].nzval'*x[Din[i,:].nzind])
+		@expression(m, reg2, λ[2]*g_nom)
+	else
+		@expression(m, reg2, 0)
+	end
     if β > 0 # penalty coefficient of DV related term in objective
         dbar = m[:dbar]
 #        @objective(m, Max, g-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
-        @objective(m, Max, g-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
+        @objective(m, Max, g + reg1 + reg2 -β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
     else
-        @objective(m, Max, g)
+        @objective(m, Max, g + reg1 + reg2)
     end
     println("Init Model End......................")
     #write_to_file(m,"DBGModel.lp")
@@ -352,11 +364,11 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, L=1)
+function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists,λ,ϕ, L=1)
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
     ptvN = firstIndices[1]-1
 
-    m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n)
+    m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ,ϕ)
     iter=0
     addedDVCons = false
     stage = 1
