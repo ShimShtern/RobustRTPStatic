@@ -21,11 +21,11 @@ const bSAVE_DISTORPROJ_FILES = false
 const ρ = [1; 1]# 1]
 const t = [40.0 ; 40.0]
 const tmax = [40.0 ; 40.0]
-
 #t = [62; 54; 100]
 #t=[60; 54; 100]
 #tmax = [62; 54; 100]
 
+λ=0 #unused reg param
 β = 1e-8
 μ = 1.3 #1.25 #1.1
 δ=0.1  #0.1 #0.01:0.01:0.1
@@ -151,7 +151,7 @@ else
     end
 end
 
-time_prof=@elapsed model, oarCt, homCt =maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
+time_prof=@elapsed model, oarCt, homCt =maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,[0;0],0,200)
 #time_prof=@elapsed model = maxmin_twostage_subprob.parametricSolveIncreasing(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
 
 @show time_prof
