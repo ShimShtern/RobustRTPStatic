@@ -1,4 +1,3 @@
-
 module maxmin_test_liver
 include("maxmin_twostage_subprob.jl")
 #using maxmin_twostage_subprob
@@ -10,8 +9,8 @@ using SparseArrays
 using FileIO, JLD2
 using Printf
 
-const bLOAD_FROM_FILE=false
-const bLOAD_FROM_FILE_gamma=false
+const bLOAD_FROM_FILE = false
+const bLOAD_FROM_FILE_gamma = false
 const bLOAD_FROM_FILE_projection = false
 const bSAVE_FILES = false
 const bSAVE_DISTORPROJ_FILES = false
@@ -25,20 +24,20 @@ const tmax = [40.0 ; 40.0]
 #t=[60; 54; 100]
 #tmax = [62; 54; 100]
 
-λ=0 #unused reg param
-β = 1e-8
-μ = 1.3 #1.25 #1.1
-δ=0.1  #0.1 #0.01:0.01:0.1
+#λ=0 #unused reg param
+β = 0 #1e-8
+μ = 2 #1.45 #1.25 #1.1
+δ = 0 #0.1  #0.1 #0.01:0.01:0.1
 gamma_const=0.051
 if Sys.islinux()
     μ = parse(Float64,ARGS[1])#1.2 #1.25 #1.1
     gamma_const = parse(Float64,ARGS[2])
     δ = parse(Float64,ARGS[3])#0.05
 end
-α=[0.03145+gamma_const,0.00228,-7.885e-5]
-max_γ=0.05+gamma_const
-max_dist=10
-gamma_func(x) = (x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
+#α=[0.03145+gamma_const,0.00228,-7.885e-5]
+#max_γ=0.05+gamma_const
+#max_dist=10
+gamma_func(x) = 1*(x>0) #(x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
 file = matopen("liverEx_2.mat")
 #file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file, "neighbors_Mat")

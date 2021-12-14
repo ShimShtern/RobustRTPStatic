@@ -14,10 +14,9 @@ import LightGraphs.Parallel
 using FileIO, JLD2
 using Printf
 
-const __DEBUG = false
+const __DEBUG = false #true
 #using Plots
 const INITXNORM = 100
-
 const VIOL_EPS = 1e-2
 const DBARNZTH = 1e-4
 const ZNZTH = 1e-4
@@ -40,7 +39,10 @@ const SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
 const BIG_NUM = 1e6
 
-const OPTIMALITY_TOL = 1e-5
+const OPTIMALITY_TOL = 1e-4
+const FEASIBILITY_TOL = 1e-5
+
+global const GRB_ENV = Gurobi.Env()
 
 global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
@@ -68,20 +70,26 @@ end
 
 #
 function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ=[0;0],ϕ_nom=0,xinit=[])
-
     n, nb = size(Din)
     #_rowLoc = spzeros(n,1)
     global _V = fill(Int[],length(firstIndices)+1)
     global _N = fill(Int[],length(firstIndices)+1)
     _V[1] = 1:firstIndices[1]-1   # PTV
     #lastRow = firstIndices[1]-1
+
     if __DEBUG
         println("Init Model Start......................")
     end
-    optimizer = Gurobi.Optimizer #SCS.Optimizer
-    m = Model(optimizer)
-    set_optimizer_attribute(m, "OutputFlag", 0)
+    #optimizer = Gurobi.Optimizer(GRB_ENV) #SCS.Optimizer
+    m = Model(() -> Gurobi.Optimizer(GRB_ENV))
+    outputFlag = 0
+    if __DEBUG
+        outputFlag = 1
+    end
+    set_optimizer_attribute(m, "OutputFlag", outputFlag)
     set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
+    set_optimizer_attribute(m, "FeasibilityTol", FEASIBILITY_TOL)
+
     ptvn = length(_V[1])
     @variable(m,g)
     if isempty(phi_u_n)  # if not given then initialize phi to unity to solve problem with physical dose
@@ -273,11 +281,15 @@ function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = fa
                 end
             end
 
+            if isempty(voxIdxs)
+                println("getMostViolated for k=", k, "has 0 constraints")
+                continue
+            end
             viol = vec(_D[voxIdxs,:]*x .- t[k])
             n_min=min(n,length(viol))
             violIdxs = partialsortperm(viol,1:n_min,rev=true)
-            max_viol_org=viol[violIdxs[1]]
-            max_viol_aor=max(max_viol_org,max_viol_aor)
+            max_viol_org = viol[violIdxs[1]]
+            max_viol_aor = max(max_viol_org,max_viol_aor)
             if __DEBUG
                 @show viol[violIdxs[n_min]] viol[violIdxs[1]]
             end
@@ -466,7 +478,8 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
             #    max_viol_dev , num_const_added_wdv = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β,true)
             #    println("Max violation wrt to t in _V: ", max_viol_dev, " Num of cons with dev added: ", num_const_added_wdv)
             max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), t, tmax,β,false,isempty(dvrhs))
-            if max_viol_aor<=MAX_VIOL_EPS
+            println("max_viol_aor= ", max_viol_aor, "  num_const_added_aor =", num_const_added_aor)
+            if max_viol_aor <= MAX_VIOL_EPS
                 println("Terminating lazy cons loop at It= ", it)
                 break
             end
