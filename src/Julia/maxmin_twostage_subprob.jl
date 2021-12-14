@@ -14,32 +14,33 @@ import LightGraphs.Parallel
 using FileIO, JLD2
 using Printf
 
+const __DEBUG = false
 #using Plots
-INITXNORM = 100
+const INITXNORM = 100
 
-VIOL_EPS = 1e-2
-DBARNZTH = 1e-4
-ZNZTH = 1e-4
-BIG_OBJ = 1e8
-UNIFORM_GAMMA = true
+const VIOL_EPS = 1e-2
+const DBARNZTH = 1e-4
+const ZNZTH = 1e-4
+const BIG_OBJ = 1e8
+const UNIFORM_GAMMA = true
 
-LAZY_CONS_PERORGAN_TH = 5e4
-LAZY_CONS_PERORGAN_INIT_NUM = 400
-LAZY_CONS_PERORGAN_NUM_PER_ITER = 200
-MAX_LAZY_CON_IT = 500
+const LAZY_CONS_PERORGAN_TH = 1e5 #5e4 # 5e3 #1e5 #5e4
+const LAZY_CONS_PERORGAN_INIT_NUM = 400
+const LAZY_CONS_PERORGAN_NUM_PER_ITER = 200
+const MAX_LAZY_CON_IT = 500
 
-LAZYCONS_TIGHT_TH = 0.2
-MAX_VIOL_RATIO_TH = 0.2
+const LAZYCONS_TIGHT_TH = 0.2
+const MAX_VIOL_RATIO_TH = 0.2
 
-MAX_V_CONS = 10 #can be set to infinity
-MAX_VIOL_EPS = 1e-2
-MAX_VIOL_EPS_INIT = 10
+const MAX_V_CONS = 10 #can be set to infinity
+const MAX_VIOL_EPS = 1e-2
+const MAX_VIOL_EPS_INIT = 10
 
-SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
+const SURPLUS_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
-BIG_NUM = 1e6
+const BIG_NUM = 1e6
 
-OPTIMALITY_TOL = 1e-5
+const OPTIMALITY_TOL = 1e-5
 
 global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
@@ -47,7 +48,7 @@ global _V
 global _N # voxels by organ not loaded into optimization
 
 
-export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume, computeProjections
+export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume, computeProjections, parametricSolveIncreasing
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
@@ -74,8 +75,9 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,xinit=[])
     global _N = fill(Int[],length(firstIndices)+1)
     _V[1] = 1:firstIndices[1]-1   # PTV
     #lastRow = firstIndices[1]-1
-    println("Init Model Start......................")
-
+    if __DEBUG
+        println("Init Model Start......................")
+    end
     optimizer = Gurobi.Optimizer #SCS.Optimizer
     m = Model(optimizer)
     set_optimizer_attribute(m, "OutputFlag", 0)
@@ -129,8 +131,9 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,xinit=[])
     end
 
     addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t,tmax,β,false,isempty(dvrhs))
-    @show length(_V)
-
+    if __DEBUG
+        @show length(_V)
+    end
     if β > 0 # penalty coefficient of DV related term in objective
         dbar = m[:dbar]
 #        @objective(m, Max, g-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
@@ -180,11 +183,15 @@ end
 
 
 function solveModel!(m,firstIndices)
-    println("In solveModel!")
+    if __DEBUG
+        println("In solveModel!")
+    end
     @time optimize!(m)
 
     if termination_status(m) == MOI.OPTIMAL
-        println("********** Optimal Objective Function value: ", JuMP.objective_value(m))
+        if __DEBUG
+            println("********** Optimal Objective Function value: ", JuMP.objective_value(m))
+        end
     elseif termination_status(m) == MOI.INFEASIBLE
         println("Infeasible model")
         return
@@ -195,10 +202,27 @@ function solveModel!(m,firstIndices)
         println("Failed to obtain an optimal soln to subprob, status: ", JuMP.termination_status(m))
         return
     end
-        #cons = constraint_by_name(m,"cons_oar")
+    #cons = constraint_by_name(m,"cons_oar")
     #n = length(cons)
     #printDoseVolume(m,doseVol)
     return m
+end
+
+function getValidBetaInterval(m)
+    dbar = m[:dbar]
+    report = lp_sensitivity_report(m)
+    minMaxBeta = Inf
+    maxMinBeta = 0
+    for i=1:length(dbar)
+        dbarlo, dbarhigh = report[dbar[i]]
+        if dbarhigh < minMaxBeta
+            minMaxBeta = dbarhigh
+        end
+        if dbarlo > maxMinBeta
+            maxMinBeta = dbarlo
+        end
+    end
+    return maxMinBeta,minMaxBeta
 end
 
 function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = false)
@@ -240,8 +264,9 @@ function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = fa
             violIdxs = partialsortperm(viol,1:n_min,rev=true)
             max_viol_org=viol[violIdxs[1]]
             max_viol_aor=max(max_viol_org,max_viol_aor)
-            @show viol[violIdxs[n_min]] viol[violIdxs[1]]
-
+            if __DEBUG
+                @show viol[violIdxs[n_min]] viol[violIdxs[1]]
+            end
             first_not_viol_ind = findfirst((viol[violIdxs] .<= 0.0))
             #initialization of _V[k+1] is neccesary to prevent use of the same pointer
             if length(_V[k+1]) == 0 && t[k]==tmax[k] #if the first add all even if not violated
@@ -296,7 +321,9 @@ function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = fa
                 @constraint(m, [i in indicesToAdd], dbar[i] <= (tmax[k]-t[k])*z[i])
             end
         end
-        println("Number of voxels in _V ", length(_V[k+1]), " voxels in _N: ",  length(_N[k+1])  , " OAR: ", k+1, " cons added: ", length(indicesToAdd))
+        if __DEBUG
+            println("Number of voxels in _V ", length(_V[k+1]), " voxels in _N: ",  length(_N[k+1])  , " OAR: ", k+1, " cons added: ", length(indicesToAdd))
+        end
     end
     return max_viol_aor, num_const_added_aor
 end
@@ -352,15 +379,53 @@ function addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
     return lthviol, maxviol
 end
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, L=1)
+function evaluateDevNum(dbar)
+    cntVec = zeros(length(_V)-1,1)
+    for k=2:length(_V)
+        for i in _V[k]
+            if (dbar[i] > DBARNZTH)
+                cntVec[k-1] += 1
+            end
+        end
+    end
+    return cntVec
+end
+
+# parametricSolveIncreasing -
+function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, L=1, βstop=BIG_NUM)
+    m = initModel(Din,firstIndices,t,tmax,[],β,phi_u_n)
+    βPrev = β
+    while (β<βstop)
+        m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,tmax,[],β,μ, phi_u_n, phi_b_n, dists, L=1,m)
+        dbar = m[:dbar]
+        devVec = evaluateDevNum(dbar) # function that returns deviation vector with dimension of OAR num
+        if (all(devVec.<dvrhs))
+            break
+        end
+        βLb,βUb = getValidBetaInterval(m)
+        if (htCn+homCn > 0 && βLb > βPrev) # if generated cuts and lower bound for validity of basis exceeds the previous beta
+            β = βLb - eps
+        else
+            β = βUb + eps
+        end
+    end
+    return m
+end
+
+function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, L=1, m=[])
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
+
     ptvN = firstIndices[1]-1
 
-    m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n)
+    if isempty(m)
+        m = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n)
+    end
     iter=0
     addedDVCons = false
     stage = 1
-    sum_num_const_added_aor = LAZY_CONS_PERORGAN_INIT_NUM  # this single counter is initialized to the initial number per organ??
+    sum_num_const_added_aor = 0 #LAZY_CONS_PERORGAN_INIT_NUM  # this single counter is initialized to the initial number per organ??
+    sum_num_const_added_hom = 0
+
     while(true)
         iter=iter+1
         prevObj = BIG_OBJ
@@ -368,12 +433,14 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
         prev_viol_aor = BIG_NUM
         max_viol_aor = BIG_NUM
         num_const_added_wdv = BIG_NUM
-        @time for it = 1:MAX_LAZY_CON_IT
-            solveModel!(m,firstIndices)
+        #@time
+        for it = 1:MAX_LAZY_CON_IT
+            @time solveModel!(m,firstIndices)
             newObj=JuMP.objective_value(m)
               ########### exit inner loop if relative decrease in obj fun less than threshold or absolute diff and in the first stage or otherwise if violation less than threshold without dv cons or in dose vol
             if ((prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1) || max_viol_aor<=MAX_VIOL_EPS #&& (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
-                println("Terminating lazy cons loop at It= ", it)
+                println("Terminating lazy cons loop at It= ", it, "  Infeas reduction: ", (prev_viol_aor-max_viol_aor)/prev_viol_aor,
+                " Obj red %: ", (prevObj-newObj)/prevObj)
                 flush(stdout)
                 break
             end
@@ -385,28 +452,33 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
             #else
             #    max_viol_aor, num_const_added_aor = addMostViolated!(m, LAZY_CONS_PERORGAN_NUM_PER_ITER, JuMP.value.(m[:x]), tmax, tmax,β)
             #end
-            sum_num_const_added_aor+=num_const_added_aor
-            @show max_viol_aor, num_const_added_aor
+            sum_num_const_added_aor += num_const_added_aor
+            if __DEBUG
+                @show max_viol_aor, num_const_added_aor
+            end
             prev_viol_aor = max_viol_aor
             prevObj = newObj
         end
-        println("Total of ", sum_num_const_added_aor, " lazy constraints added so far")
-        println("Reduced the objective by ", (prevObj-newObj)/prevObj)
-        println("Constraints violation by ", (prev_viol_aor-max_viol_aor)/prev_viol_aor)
-        println("Outer loop Iter=", iter, " Objective value: ", newObj, " *********")
+#        println("Total of ", sum_num_const_added_aor, " lazy constraints added so far")
+#        println("Reduced the objective by ", (prevObj-newObj)/prevObj)
+#        println("Constraints violation by ", (prev_viol_aor-max_viol_aor)/prev_viol_aor)
+        println("Outer loop Iter=", iter, " Objective value: ", newObj, " OAR lazy cons: ", sum_num_const_added_aor, " Hom lazy cons: ",sum_num_const_added_hom)
         consCollect = SortedMultiDict{Float64,Array{Int64,1}}()
         x = m[:x]
         xx = value.(x)
         d = _D[1:ptvN,:]*xx
-        @show minimum(d), maximum(d)
+        if __DEBUG
+            @show minimum(d), maximum(d)
+        end
         @time min_hom_viol, max_hom_viol=addHomogenityConstr!(m,consCollect,ptvN,μ,L,phi_u_n,phi_b_n,dists,d)
         if stage==2 && max_hom_viol<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS #&& (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
             println("Terminating cut algorithm.. iter=", iter)
             break
         elseif !isempty(consCollect)
             stage=1
-            println("Max Violation: ", max_hom_viol, " " ,min_hom_viol)
-            println("Adding ", length(consCollect), " cuts.....................")
+            if __DEBUG
+                println("Max Violation: ", max_hom_viol, " " ,min_hom_viol, " Adding ", length(consCollect), " cuts..")
+            end
         else
             if stage == 1
                 println("Switching to stage 2 ******")
@@ -420,7 +492,8 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
         end
 
         cons_array = Any[]
-        @time for (v,pair) in exclusive(consCollect,startof(consCollect),pastendsemitoken(consCollect))
+        for (v,pair) in exclusive(consCollect,startof(consCollect),pastendsemitoken(consCollect))
+        #@time
             i1=pair[1]
             i2=pair[2]
             #shimrit:added both constraints
@@ -442,15 +515,15 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
         @time for i=1:lenCons
             add_constraint(m, cons_array[i])
         end
-    end
+        sum_num_const_added_hom += lenCons
+    end # robust cuts loop
     #printDoseVolume(m, t, tmax, !isempty(dvrhs), true) # print out verbose output
-    return m
+    return m, sum_num_const_added_aor, sum_num_const_added_hom
 end
 
 function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
     conicForm = false
-
-    zVar = variable_by_name(m, "z")
+    #zVar = m[:z] #variable_by_name(m, "z")
     gVar = m[:g] #variable_by_name(m,"g")
     xVar = m[:x]
     #if zVar != nothing
@@ -476,9 +549,9 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
             if !isempty(zVar)
                 sumZVar = sum(zVar)
                 nzZ = zVar[zVar .> ZNZTH]
-                if !isempty(nzZ)
+                #if !isempty(nzZ)
                 #    histogram(nzZ)
-                end
+                #end
                 #savefig("zlikehist.png")
             end
             println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99), " vox num exceeding t: " , numDev, " sum dbar/(tmax-t) :", sumZVar)
@@ -504,7 +577,9 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
         for k=2:length(_V)
             if t[k-1] < tmax[k-1]
                 indices = _V[k]
-                @show length(dbarVar)
+                if __DEBUG
+                    @show length(dbarVar)
+                end
                 dev = max.(_D[indices,:]*x.-t[k-1],0)
                 nzNum = 0
                 nzDvar = 0
