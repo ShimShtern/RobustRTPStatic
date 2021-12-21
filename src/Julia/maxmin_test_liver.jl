@@ -1,8 +1,6 @@
 module maxmin_test_liver
 include("maxmin_twostage_subprob.jl")
-#using maxmin_twostage_subprob
-#using maxmin_twostage_subprob.initModel, maxmin_twostage_subprob.solveModel
-#import maxmin_twostage_subprob: initModel, solveModel
+
 using MAT
 using JuMP
 using SparseArrays
@@ -17,26 +15,19 @@ const bSAVE_DISTORPROJ_FILES = false
 
 #file = matopen("liverEx2.mat")
 #ρ = [0.99; 1; 1]
-const ρ = [1; 1]# 1]
+const ρ = [0.001; 0]# 1]
 const t = [40.0 ; 40.0]
-const tmax = [40.0 ; 40.0]
+const tmax = [45.0 ; 40.0]
 #t = [62; 54; 100]
 #t=[60; 54; 100]
 #tmax = [62; 54; 100]
 
 #λ=0 #unused reg param
-β = 0 #1e-8
-μ = 2 #1.45 #1.25 #1.1
+β = 1e-6
+μ = 1.45 #1.45 #1.25 #1.1
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1
 gamma_const=0.051
-if Sys.islinux()
-    μ = parse(Float64,ARGS[1])#1.2 #1.25 #1.1
-    gamma_const = parse(Float64,ARGS[2])
-    δ = parse(Float64,ARGS[3])#0.05
-end
-#α=[0.03145+gamma_const,0.00228,-7.885e-5]
-#max_γ=0.05+gamma_const
-#max_dist=10
+
 gamma_func(x) = 1*(x>0) #(x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
 file = matopen("liverEx_2.mat")
 #file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
@@ -55,27 +46,15 @@ else
     inD = read(file, "Dij")
     V = read(file, "V")
     close(file)
-    println(
-        "initial D size: ",
-        size(inD),
-        "  OAR num (length(V)-1): ",
-        length(V) - 1,
-        " D nnz: ",
-        nnz(inD))
+    println("initial D size: ",size(inD),"  OAR num (length(V)-1): ",length(V) - 1," D nnz: ",nnz(inD))
     #println(inD.nzval)
     #sumVec = sum(inD,2)
     nonzeroIdxs = unique(inD.rowval) #finall(sumVec->sumVec>0,sumVec)
-    println(
-        "nonzero rows: ",
-        length(nonzeroIdxs),
-        " min: ",
-        minimum(nonzeroIdxs),
-        " max: ",
-        maximum(nonzeroIdxs))
+    println("nonzero rows: ",length(nonzeroIdxs)," min: ",minimum(nonzeroIdxs)," max: ",maximum(nonzeroIdxs))
     nb = size(inD, 2)
     D = spzeros(0, nb)
     firstIndices = [] # vector of indices of first voxels for each of the stuctures
-    dvrhs = zeros(length(V) - 1)
+    dvrhs = zeros(length(V) - 2)
 
     # skipping the last strucure that includes dead voxels?
     for k = 1:length(V)-1
@@ -100,14 +79,7 @@ else
         end
     end
     if bSAVE_FILES
-        FileIO.save(
-            "D_Liv_formatted.jld2",
-            "D",
-            D,
-            "firstIndices",
-            firstIndices,
-            "dvrhs",
-            dvrhs)
+        FileIO.save("D_Liv_formatted.jld2","D",D,"firstIndices",firstIndices,"dvrhs",dvrhs)
     end
 end
 close(file)
@@ -149,24 +121,19 @@ else
         FileIO.save(file_name_proj,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n)
     end
 end
-
-time_prof=@elapsed model, oarCt, homCt =maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,[0;0],0,200)
+@show t, dvrhs
+@assert(length(t)==length(dvrhs))
+#time_prof=@elapsed model, oarCt, homCt =maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,[0;0],0,200)
 #time_prof=@elapsed model = maxmin_twostage_subprob.parametricSolveIncreasing(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
+time_prof=@elapsed model,βvec,objValVec = maxmin_twostage_subprob.parametricSolveDecreasing(D,firstIndices,t,tmax,dvrhs,μ,phi_u_n, phi_b_n, dists,200)
 
 @show time_prof
 
 maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) # print out verbose output
 
-xx = value.(model[:x])
-g = value.(model[:g])
-PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
-minPhysDose=minimum(D[1:firstIndices[1]-1,:]*xx)
-#file_name=@sprintf("results_%1.3f_%.2f_%.3f_%.2f.jld2",β,μ,δ,gamma_const)
-#FileIO.save(file_name,"δ",δ,"μ",μ,"β",β,"t",t,"gamma_const",gamma_const,"time_prof",time_prof,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar)
 mkpath("ResultsFiles")
-summary_file_name="./ResultsFiles/liver_new.txt" # not recommended that 2 processes print to same file -- check with shimrit
-open(summary_file_name,"a+") do io
-    println(io,μ,",",δ,",",gamma_const,",",β,",",t,",",g,",",PhysHom,",",minPhysDose,",",time_prof,",",xx)
-end
+summary_file_name="./ResultsFiles/parametric.jld2" # not recommended that 2 processes print to same file -- check with shimrit
+FileIO.save(summary_file_name,"βvec",βvec,"objValVec",objValVec)
+
 
 end
