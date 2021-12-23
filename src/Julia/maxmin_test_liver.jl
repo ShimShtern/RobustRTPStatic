@@ -15,9 +15,9 @@ const bSAVE_DISTORPROJ_FILES = false
 
 #file = matopen("liverEx2.mat")
 #ρ = [0.99; 1; 1]
-const ρ = [0.001; 0]# 1]
+const ρ = [0.01; 0]# 1]
 const t = [40.0 ; 40.0]
-const tmax = [45.0 ; 40.0]
+const tmax = [42.0 ; 40.0]
 #t = [62; 54; 100]
 #t=[60; 54; 100]
 #tmax = [62; 54; 100]
@@ -33,6 +33,9 @@ file = matopen("liverEx_2.mat")
 #file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file, "neighbors_Mat")
 ϕ = read(file, "omf_Vec")
+
+n,nn = size(γ)    # to remove later, currently \gamma matrix is incorrect for liver
+γ[1:n,1:n].=0
 
 D = []
 firstIndices = []
@@ -112,7 +115,7 @@ else
 end
 if bLOAD_FROM_FILE_projection*bLOAD_FROM_FILE_gamma
     phi_u_n, phi_b_n = FileIO.load(file_name_proj,"phi_u_n","phi_b_n")
-else
+elseif false
     phi_u_n, phi_b_n, dists = maxmin_twostage_subprob.computeProjections(γ, gamma_func, phi_under, phi_bar, dists)
     if bSAVE_DISTORPROJ_FILES
         if !bLOAD_FROM_FILE_gamma
@@ -120,6 +123,9 @@ else
         end
         FileIO.save(file_name_proj,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n)
     end
+else
+    phi_u_n = ϕ
+    phi_b_n = ϕ
 end
 @show t, dvrhs
 @assert(length(t)==length(dvrhs))
