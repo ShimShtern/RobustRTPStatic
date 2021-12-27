@@ -15,7 +15,7 @@ const bSAVE_DISTORPROJ_FILES = false
 
 #file = matopen("liverEx2.mat")
 #ρ = [0.99; 1; 1]
-const ρ = [0.01; 0]# 1]
+const ρ = [0.99; 0]# 1]
 const t = [40.0 ; 40.0]
 const tmax = [42.0 ; 40.0]
 #t = [62; 54; 100]

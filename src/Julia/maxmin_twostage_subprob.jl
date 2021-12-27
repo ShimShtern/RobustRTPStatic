@@ -40,14 +40,14 @@ const MAX_VIOL_RATIO_TH = 0.001
 const MAX_V_CONS = 10 #can be set to infinity
 const MAX_VIOL_EPS = 1e-2 #oar constraint violation allowed
 const MAX_VIOL_EPS_INIT = 10  #initial oar constraint violation allowed in phase I / to generate homogeneity constraints
-const BETA_EPS = 1e-12 # used for parametricSolve routines
+const BETA_EPS = 5e-3# used for parametricSolve routines
 
 const DEV_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
 const BIG_NUM = 1e6
 
-const OPTIMALITY_TOL = 1e-6
-const FEASIBILITY_TOL = 1e-6
+const OPTIMALITY_TOL = 1e-5
+const FEASIBILITY_TOL = 1e-5
 
 global const GRB_ENV = Gurobi.Env()
 
@@ -252,13 +252,13 @@ function getValidBetaInterval(m,t,tmax)
             #dbarlo, dbarhigh = lp_objective_perturbation_range(dbar[i]) #,OPTIMALITY_TOL)
                 if dbarDeltaUp < deltaInc
                     deltaInc = dbarDeltaUp
-                    if deltaInc < 0
+                    if deltaInc < -BETA_EPS
                         error("error in allowable increase, var idx: ", i, " deltaInc=", deltaInc)
                     end
                 end
                 if dbarDeltaDn > deltaDec
                     deltaDec = dbarDeltaDn
-                    if deltaDec > 0
+                    if deltaDec > BETA_EPS
                         error("error in allowable decrease, var idx: ", i, " deltaDec=", deltaDec)
                     end
                 end
@@ -484,8 +484,8 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n,
         g = m[:g]
         append!(objValVec,value(g))
         deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
-        βUb = β + deltaInc
-        βLb = β + deltaDec # deltaDec should be negative
+        βUb = β - deltaDec #+ deltaInc
+        βLb = β - deltaInc #+ deltaDec # deltaDec should be negative
         if βLb > βPrev #(htCn+homCn > 0 && βLb > βPrev) # if generated cuts and upper bound for validity of basis is less than the previous beta
             #βprev = β
             β = βLb - BETA_EPS
@@ -547,9 +547,9 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
         append!(βvec,value(β))
         println("* In parametricSolveDecreasing! loop iter=", iter, " beta= ",β, " g=", last(gVec))
         deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
-        βUb = β + deltaInc
-        βLb = β + deltaDec # deltaDec should be negative
-        if βUb < βprev #(htCn+homCn > 0 && βUb < βprev) # if generated cuts and lower bound for validity of basis exceeds the previous beta
+        βUb = β - deltaDec #+ deltaInc
+        βLb = β - max(deltaInc,0) #deltaDec # deltaDec should be negative
+        if βUb + BETA_EPS < βprev #(htCn+homCn > 0 && βUb < βprev) # if generated cuts and lower bound for validity of basis exceeds the previous beta
             β = βUb + BETA_EPS
         else
             dbar = m[:dbar]
@@ -580,6 +580,11 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
     model = m
     if m == nothing
         model = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ,ϕ)
+    else
+        dbarVarDict = model[:dbar]
+        for (key,val) in dbarVarDict
+            set_objective_coefficient(model, val, -β)
+        end
     end
     iter=0
     addedDVCons = false
