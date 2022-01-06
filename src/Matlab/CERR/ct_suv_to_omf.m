@@ -20,7 +20,7 @@ end
 planC = updatePlanFields(planC);
 indexS = planC{end};
 suvType = 'BW';
-planC = calc_suv(PTindex,planC,suvType); %PET is scan 2 in this file
+planC = calc_suv(PTindex,planC,suvType); 
 [CT, PT]= convert_suv_to_CT(planC,PTindex,CTindex);
 Mask = getUniformStr(strructNumBrain,planC)>0; %mask of brain;
 Mask_PTV = getUniformStr(structNumPTV,planC)>0; %mask of ptv;

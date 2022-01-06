@@ -53,8 +53,11 @@ for CTslice=1:size(planC{indexS.scan}(CTindex).scanArray,3) %go over CT slices
         suv1=planC{indexS.scan}(PTindex).scanArray(:,:,PTslices(1));
         suv2=planC{indexS.scan}(PTindex).scanArray(:,:,PTslices(2));
         suv = suv1* full(CT.z.Ratio(CTslice,PTslices(1)))+suv2* full(CT.z.Ratio(CTslice,PTslices(2)));
-    else
+    elseif length(PTslices)==1    
         suv=planC{indexS.scan}(PTindex).scanArray(:,:,PTslices(1));
+    else
+        CT.suv(:,:,CTslice)=Inf;
+        continue;
     end
     %for each pixel in the slice compute the interpulation based on the x
     %and y PET ratios

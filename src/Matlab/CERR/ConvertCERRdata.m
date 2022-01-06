@@ -1,18 +1,30 @@
 global planC
 
-fname="C:\Users\Shim\Dropbox (MIT)\technion\research\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient 4\MergedPTCT_structs_20210428_withExt_0102_withDosimetry2.mat";
+fname="C:\Users\Shim\Dropbox (MIT)\technion\research\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient4\MergedPTCT_structs_20210428_withExt_0102_withDosimetry2.mat";
+dir='C:\Users\Shim\Dropbox (MIT)\technion\research\Robust Radio Therapy (All)\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient1\';
+fname=[dir,'Patient1_Visit1_Merged_ptv_brain_withExt_withTelemetry_16beams.mat'];
+
 planC = loadPlanC(fname);
 planC = updatePlanFields(planC);
 indexS = planC{end};
 CTindex=1;
 
+%StructNumPTV=4;
+%StructNumBrain=5;
+%StructNumChiasm=6;
+%StructNumExterior=7;
 StructNumPTV=4;
-StructNumBrain=5;
-StructNumChiasm=6;
-StructNumExterior=7;
-[omf_Vec,Mask_PTV_not_dead,Max_Delta] = ct_suv_to_omf(1,2,StructNumBrain,StructNumPTV);
+StructNumBrain=3;
+StructNumExterior=5;
+CTscan=1;
+PETScan=2;
+[omf_Vec,Mask_PTV_not_dead,Max_Delta] = ct_suv_to_omf(CTscan,PETScan,StructNumBrain,StructNumPTV);
 omf_Vec=omf_Vec(Mask_PTV_not_dead);
-[Dij,V]=CreateIM(StructNumPTV, [StructNumBrain,StructNumChiasm,StructNumExterior]);
+%[Dij,V]=CreateIM(StructNumPTV,
+%[StructNumBrain,StructNumChiasm,StructNumExterior]);% for Patient 4
+[Dij,V]=CreateIM(StructNumPTV, [StructNumBrain,StructNumExterior]); %for Patient 1
+
+
 
 %%
 V{1}=find(Mask_PTV_not_dead)'; %update to just include living voxels
@@ -45,5 +57,5 @@ J((ntriplets+1):end)=[];
 X((ntriplets+1):end)=[];
 neighbors_Mat=sparse(I,J,X,T_voxel_num,T_voxel_num);
 
-
-save('Patient4_Visit1.mat','Dij','V', 'neighbors_Mat', 'omf_Vec','-v7.3')
+save([dir,'Patient1_Visit1_16beams_refpoint0.1.mat'],'Dij','V', 'neighbors_Mat', 'omf_Vec','-v7.3')
+%save('Patient4_Visit1.mat','Dij','V', 'neighbors_Mat', 'omf_Vec','-v7.3')

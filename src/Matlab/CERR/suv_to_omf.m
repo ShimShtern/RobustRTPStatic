@@ -15,10 +15,11 @@ size(suvM)
 size(Mask)
 suvMv = suvM(Mask);
 suvMnoPTV = suvM(MaskNoPTV);
-refPt = prctile(suvMnoPTV,5); % most oxygenated voxel
+refPt = prctile(suvMnoPTV,0.1); % most oxygenated voxel %was 5% for Patient4
 suvMv = suvMv/refPt;
 min(suvMv,[],'all')
 max(suvMv,[],'all')
+%specific for FMISO
 A = 10.9;
 B = 10.7; %A-min(suvM,[],'all')-EPS;
 C = 2.5;
