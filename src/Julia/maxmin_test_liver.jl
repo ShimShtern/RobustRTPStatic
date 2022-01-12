@@ -15,16 +15,17 @@ const bSAVE_DISTORPROJ_FILES = false
 
 #file = matopen("liverEx2.mat")
 #ρ = [0.99; 1; 1]
-const ρ = [0.99; 0]# 1]
-const t = [40.0 ; 40.0]
-const tmax = [42.0 ; 40.0]
+const ρ = [0.7; 0.5]# 1]
+# In the Liver data the 1st OAR is liver, 2nd OAR is heart
+const t = [30.0 ; 50.0]
+const tmax = [60.0 ; 50.0]
 #t = [62; 54; 100]
 #t=[60; 54; 100]
 #tmax = [62; 54; 100]
 
 #λ=0 #unused reg param
 β = 1e-6
-μ = 1.45 #1.45 #1.25 #1.1
+μ = 1.2 #1.45 #1.45 #1.25 #1.1
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1
 gamma_const=0.051
 
@@ -131,7 +132,7 @@ end
 @assert(length(t)==length(dvrhs))
 #time_prof=@elapsed model, oarCt, homCt =maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,[0;0],0,200)
 #time_prof=@elapsed model = maxmin_twostage_subprob.parametricSolveIncreasing(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
-time_prof=@elapsed model,βvec,objValVec = maxmin_twostage_subprob.parametricSolveDecreasing(D,firstIndices,t,tmax,dvrhs,μ,phi_u_n, phi_b_n, dists,200)
+time_prof=@elapsed model,βvec,objValVec,dvCntMat = maxmin_twostage_subprob.parametricSolveDecreasing(D,firstIndices,t,tmax,dvrhs,μ,phi_u_n, phi_b_n, dists,200)
 
 @show time_prof
 
@@ -139,7 +140,7 @@ maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) #
 
 mkpath("ResultsFiles")
 summary_file_name="./ResultsFiles/parametric.jld2" # not recommended that 2 processes print to same file -- check with shimrit
-FileIO.save(summary_file_name,"βvec",βvec,"objValVec",objValVec)
+FileIO.save(summary_file_name,"βvec",βvec,"objValVec",objValVec,"dvCntMat",dvCntMat)
 
 
 end

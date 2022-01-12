@@ -1,6 +1,7 @@
 module maxmin_twostage_subprob
 #using MAT
 using JuMP
+#using CPLEX
 using Gurobi
 #using SCS
 #using UnicodePlots
@@ -19,7 +20,8 @@ const NO_DEBUG = 0
 const DEBUG_LOW = 1
 const DEBUG_MED = 2
 const DEBUG_HIGH = 3
-const __DEBUG = NO_DEBUG  #true
+const __DEBUG = NO_DEBUG #DEBUG_LOW #NO_DEBUG  #true
+const __SOLVER_DEBUG = 1
 
 #using Plots
 const INITXNORM = 100
@@ -34,20 +36,24 @@ const LAZY_CONS_PERORGAN_INIT_NUM = 400
 const LAZY_CONS_PERORGAN_NUM_PER_ITER = 100
 const MAX_LAZY_CON_IT = 500
 
-const LAZYCONS_TIGHT_TH = 0.001
-const MAX_VIOL_RATIO_TH = 0.001
+const LAZYCONS_TIGHT_TH = 0.01
+const MAX_VIOL_RATIO_TH = 0.01
 
 const MAX_V_CONS = 10 #can be set to infinity
 const MAX_VIOL_EPS = 1e-2 #oar constraint violation allowed
 const MAX_VIOL_EPS_INIT = 10  #initial oar constraint violation allowed in phase I / to generate homogeneity constraints
-const BETA_EPS = 5e-3# used for parametricSolve routines
+
+const BETA_EPS = 1e-6 # used for parametricSolve routines
+const BETA_DELTA_NZ_TH = BETA_EPS-eps()
+const BISECTION_GAP = 500
+
 
 const DEV_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
 const BIG_NUM = 1e6
 
-const OPTIMALITY_TOL = 1e-5
-const FEASIBILITY_TOL = 1e-5
+const OPTIMALITY_TOL = 1e-6
+const FEASIBILITY_TOL = 1e-6
 
 global const GRB_ENV = Gurobi.Env()
 
@@ -86,16 +92,24 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ=[0;0],ϕ_nom=0,xi
 
     if __DEBUG >= DEBUG_LOW
         println("Init Model Start......................")
+		@show t,tmax,β
     end
     #optimizer = Gurobi.Optimizer(GRB_ENV) #SCS.Optimizer
-    m = Model(() -> Gurobi.Optimizer(GRB_ENV))
-    outputFlag = 0
-    if __DEBUG >= DEBUG_MED
-        outputFlag = 1
-    end
-    set_optimizer_attribute(m, "OutputFlag", outputFlag)
-    set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
-    set_optimizer_attribute(m, "FeasibilityTol", FEASIBILITY_TOL)
+    #m = Model(() ->SCS.Optimizer())
+	m = Model(() -> Gurobi.Optimizer(GRB_ENV))
+#    outputFlag = 0
+#    if __DEBUG >= DEBUG_MED
+#        outputFlag = 1
+#    end
+	MOI.set(m, MOI.Silent(), true)
+	#MOI.set(m, MOI.NumberOfThreads(), 3)
+	#set_optimizer_attribute(m,"CPX_PARAM_LPMETHOD",4)
+	#set_optimizer_attribute(m,"CPX_PARAM_BAREPCOMP",1e-4)
+if __SOLVER_DEBUG > 0
+    set_optimizer_attribute(m, "OutputFlag", __SOLVER_DEBUG)
+end
+#    set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
+#    set_optimizer_attribute(m, "FeasibilityTol", FEASIBILITY_TOL)
 
     ptvn = length(_V[1])
     @variable(m,g)
@@ -170,7 +184,9 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ=[0;0],ϕ_nom=0,xi
     else
         @objective(m, Max, g + reg1 + reg2)
     end
-    println("Init Model End......................")
+	if __DEBUG >= DEBUG_LOW
+    	println("Init Model End......................")
+	end
     #write_to_file(m,"DBGModel.lp")
     return m
 end
@@ -232,7 +248,7 @@ function solveModel!(m,firstIndices)
         error("Infeasible or unbounded model")
     else
         println("Failed to obtain an optimal soln to subprob, status: ", JuMP.termination_status(m))
-        return
+        return m
     end
     #cons = constraint_by_name(m,"cons_oar")
     #n = length(cons)
@@ -242,27 +258,28 @@ end
 
 function getValidBetaInterval(m,t,tmax)
     dbar = m[:dbar]
-    report = lp_sensitivity_report(m)
+    report = lp_sensitivity_report(m,atol=1e-6)
     deltaInc = Inf
     deltaDec = -Inf
     for k=2:length(_V)
         if tmax[k-1]>t[k-1]
             for i in _V[k]
                 dbarDeltaDn, dbarDeltaUp = report[dbar[i]]
-				if (dbarDeltaDn > dbarDeltaUp)
-					error("dbarDeltaDn > dbarDeltaUp",dbarDeltaDn,dbarDeltaUp)
-				end
-            #dbarlo, dbarhigh = lp_objective_perturbation_range(dbar[i]) #,OPTIMALITY_TOL)
+				#if (dbarDeltaDn > dbarDeltaUp)
+				#	error("dbarDeltaDn > dbarDeltaUp ",dbarDeltaDn, " " ,dbarDeltaUp)
+				#end
                 if dbarDeltaUp < deltaInc
                     deltaInc = dbarDeltaUp
-                    if deltaInc < -BETA_EPS
-                        error("error in allowable increase, var idx: ", i, " deltaInc=", deltaInc)
+                    if deltaInc < -BETA_DELTA_NZ_TH
+                        println("error in allowable increase, var idx: ", i, " deltaInc=", deltaInc)
+						deltaInc = 0
                     end
                 end
                 if dbarDeltaDn > deltaDec
                     deltaDec = dbarDeltaDn
-                    if deltaDec > BETA_EPS
-                        error("error in allowable decrease, var idx: ", i, " deltaDec=", deltaDec)
+                    if deltaDec > BETA_DELTA_NZ_TH
+                        println("error in allowable decrease, var idx: ", i, " deltaDec=", deltaDec)
+						deltaDec = 0
                     end
                 end
             end
@@ -516,8 +533,32 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n,
 end
 
 
-# parametricSolveIncreasing -
+function betaBisection!(m,betaUb,dvrhs,Din,firstIndices,t,tmax,μ,phi_u_n,phi_b_n,dists,L)
+	βlb = 0
+	βub = betaUb
+	dvlhs = zeros(length(t))
+	idx = findall(x->x==0,tmax-t)
+	idx = idx[1]
+	dbar = m[:dbar]
 
+	while betaUb > BETA_EPS #any(dvrhs-dvlhs > BISECTION_GAP)
+		βmid = (βub-βlb)/2
+		println("In betaBisection, current βmid=",βmid)
+		m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,tmax,[],βmid,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		dvlhs = evaluateDevNum(dbar,t,tmax) # function that returns deviation vector with dimension of OAR num
+		@show dvlhs, dvrhs
+		if dvlhs[idx]+BISECTION_GAP < dvrhs[idx]
+			βub = βmid
+		elseif dvlhs[idx] > dvrhs[idx]
+			βlb = βmid
+		else
+			break
+		end
+	end
+	return βlb
+end
+
+# parametricSolveDecreasing -
 function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L=1, βstop=0)
     global _V
     global _N
@@ -525,13 +566,13 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
     m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,t,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
     initialG = value(m[:g])
     cons = all_constraints(m, AffExpr, MOI.GreaterThan{Float64})
-    β=0
+    betaUb=0
     for con in cons
         lam = dual(con)
         if (lam < -VIOL_EPS)
             error("negative dual var value, lam = ", lam)
-        elseif lam > β
-            β = lam
+        elseif lam > betaUb
+            betaUb = lam
         end
     end
     #if __DEBUG >= DEBUG_LOW
@@ -540,25 +581,34 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
     _V = nothing
     _N = nothing
     GC.gc()
-    m = initModel(Din,firstIndices,t,tmax,[],β,phi_u_n)  # Improve here later by warm starting with the solution of previously solved constrained model
+    m = initModel(Din,firstIndices,t,tmax,[],betaUb,phi_u_n)  # Improve here later by warm starting with the solution of previously solved constrained model
+	β= betaBisection!(m,betaUb,dvrhs,Din,firstIndices,t,tmax,μ,phi_u_n,phi_b_n,dists,L)
+
     βprev = β
     βvec = []
     gVec = []
+	dvMat = []
     iter = 0
-    while (β>βstop)
+    while (β>βstop-BETA_EPS)
         m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		dbar = m[:dbar]
+		devVec = evaluateDevNum(dbar,t,tmax) # function that returns deviation vector with dimension of OAR num
         append!(gVec,value(m[:g]))
         append!(βvec,value(β))
-		println("In parametricSolveDecreasing! loop iter=", iter, " beta= ",β, " got g=", last(gVec))
+		if isempty(dvMat)
+			dvMat = devVec
+		else
+			dvMat = hcat(dvMat,devVec)
+		end
+		println("In parametricSolveDecreasing! loop iter=", iter, " beta= ",β, "  g=", last(gVec))
+		@show devVec, dvrhs
+
         deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
         βUb = β - deltaDec #+ deltaInc
         βLb = max(β - deltaInc,0) #deltaDec # deltaDec should be negative
-        if βUb + BETA_EPS < βprev #(htCn+homCn > 0 && βUb < βprev) # if generated cuts and lower bound for validity of basis exceeds the previous beta
+        if βUb + BETA_EPS < βprev && any(devVec.>dvrhs) #(htCn+homCn > 0 && βUb < βprev) # if generated cuts and lower bound for validity of basis exceeds the previous beta
             β = βUb + BETA_EPS
         else
-            dbar = m[:dbar]
-            devVec = evaluateDevNum(dbar,t,tmax) # function that returns deviation vector with dimension of OAR num
-            @show devVec, dvrhs
             if (any(devVec.>dvrhs))
                 println("******* Ended parametricSolveDecrease after DVC violated, iter = ", iter, " beta = ",β, " reverting to beta = ", βprev)
                 β = βprev
@@ -571,9 +621,11 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
             βprev = β
             β = βLb - BETA_EPS
         end
-        @assert(β < βprev)
+        if(β > βprev)
+			error("β < βprev, β=", β, " βprev=", βprev)
+		end
     end
-    return m,βvec,gVec
+    return m,βvec,gVec,dvMat
 end
 
 
@@ -590,6 +642,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
         for (key,val) in dbarVarDict
             set_objective_coefficient(model, val, -β)
         end
+		#set_optimizer_attribute(model,"CPX_PARAM_LPMETHOD",1)
     end
     iter=0
     addedDVCons = false
@@ -608,12 +661,14 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
         #@time
         xVar = model[:x]
         x = []
-        for it = 1:MAX_LAZY_CON_IT
+        @time for it = 1:MAX_LAZY_CON_IT
             solveModel!(model,firstIndices)
             newObj=JuMP.objective_value(model)
             x = value.(xVar)
+			#set_optimizer_attribute(model,"CPX_PARAM_LPMETHOD",1)
             if ( (prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage == 1 ) || num_const_added_aor == 0  #abs(prev_viol_aor-max_viol_aor)/prev_viol_aor < MAX_VIOL_RATIO_TH && max_viol_aor<=MAX_VIOL_EPS_INIT && stage==1)   #&& (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
-                println("Terminating lazy cons loop at It= ", it, "  Infeas reduction: ", (prev_viol_aor-max_viol_aor)/prev_viol_aor," Obj red %: ", (prevObj-newObj)/prevObj, " phase: ", stage)
+                println("Terminating lazy cons loop at It= ", it, "  Infeas reduction: ", (prev_viol_aor-max_viol_aor)/prev_viol_aor," Obj red %: ", (prevObj-newObj)/prevObj, " phase: ", stage, #" last solve simplex iter: ", simplex_iterations(model),
+				" barrier iter: ", barrier_iterations(model))
                 flush(stdout)
                 break
             end
@@ -662,7 +717,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
             constr_num = length(consCollect)
         end
         if stage==2 && constr_num == 0#max_viol_hom<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS #&& (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
-            println("Terminating cut algorithm.. iter=", iter)
+            #println("Terminating cut algorithm.. iter=", iter)
             break
         elseif constr_num > 0 || max_viol_hom > MAX_VIOL_EPS
             #stage=1
@@ -741,7 +796,7 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
                 #end
                 #savefig("zlikehist.png")
             end
-            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 99%-tile: ", quantile!(dose,0.99), " vox num exceeding t: " , numDev, " sum dbar/(tmax-t) :", sumZVar)
+            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 90%-tile: ", quantile!(dose,0.90), " 70%-tile: ", quantile!(dose,0.70)  , " vox num exceeding t: " , numDev, " sum dbar/(tmax-t) :", sumZVar)
         end
     end
 
