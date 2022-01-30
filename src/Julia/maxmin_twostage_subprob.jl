@@ -43,7 +43,7 @@ const MAX_V_CONS = 10 #can be set to infinity
 const MAX_VIOL_EPS = 1e-2 #oar constraint violation allowed
 const MAX_VIOL_EPS_INIT = 10  #initial oar constraint violation allowed in phase I / to generate homogeneity constraints
 
-const BETA_EPS = 1e-6 # used for parametricSolve routines
+const BETA_EPS = 1e-8 # used for parametricSolve routines
 const BETA_DELTA_NZ_TH = BETA_EPS-eps()
 const BISECTION_GAP = 500
 
@@ -55,6 +55,8 @@ const BIG_NUM = 1e6
 const OPTIMALITY_TOL = 1e-6
 const FEASIBILITY_TOL = 1e-6
 
+const W = 0.15 # bisection weight
+
 global const GRB_ENV = Gurobi.Env()
 
 global _D   # save D in order to load rows as needed
@@ -63,7 +65,7 @@ global _V
 global _N # voxels by organ not loaded into optimization
 
 
-export initModel, solveModel!,robustCuttingPlaneAlg, printDoseVolume, computeProjections, parametricSolveIncreasing, parametricSolveDecreasing
+export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computeProjections, parametricSolveIncreasing, parametricSolveDecreasing
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
@@ -81,8 +83,9 @@ function initDoseVolume(m, t, tmax, dvrhs)
     return m
 end
 
+
 #
-function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ=[0;0],ϕ_nom=0,xinit=[])
+function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_nom=0, xinit=[], alwaysCreateDeltaVars=false)
     n, nb = size(Din)
     #_rowLoc = spzeros(n,1)
     global _V = fill(Int[],length(firstIndices)+1)
@@ -94,22 +97,20 @@ function initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ=[0;0],ϕ_nom=0,xi
         println("Init Model Start......................")
 		@show t,tmax,β
     end
-    #optimizer = Gurobi.Optimizer(GRB_ENV) #SCS.Optimizer
+
     #m = Model(() ->SCS.Optimizer())
+	#m = Model(()-> CPLEX.Optimizer())
 	m = Model(() -> Gurobi.Optimizer(GRB_ENV))
-#    outputFlag = 0
-#    if __DEBUG >= DEBUG_MED
-#        outputFlag = 1
-#    end
 	MOI.set(m, MOI.Silent(), true)
 	#MOI.set(m, MOI.NumberOfThreads(), 3)
 	#set_optimizer_attribute(m,"CPX_PARAM_LPMETHOD",4)
 	#set_optimizer_attribute(m,"CPX_PARAM_BAREPCOMP",1e-4)
-if __SOLVER_DEBUG > 0
-    set_optimizer_attribute(m, "OutputFlag", __SOLVER_DEBUG)
-end
-#    set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
-#    set_optimizer_attribute(m, "FeasibilityTol", FEASIBILITY_TOL)
+	if __SOLVER_DEBUG > 0
+    	set_optimizer_attribute(m, "OutputFlag", __SOLVER_DEBUG)
+	end
+    set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
+    set_optimizer_attribute(m, "FeasibilityTol", FEASIBILITY_TOL)
+	set_optimizer_attribute(m, "NumericFocus", 3)
 
     ptvn = length(_V[1])
     @variable(m,g)
@@ -139,9 +140,14 @@ end
             _V[k+1] =  oarIdxs#firstIndices[k]:firstIndices[k+1]-1
             #if (!isempty(dvrhs) &&  t[k] < tmax[k] ) ||
             if t[k] < tmax[k]
-                @assert(β>0 || !isempty(dvrhs))
+                @assert(β>0 || !isempty(dvrhs) || alwaysCreateDeltaVars)
                 for i in _V[k+1]
-                    dbar[i] = @variable(m,lower_bound=0,upper_bound=tmax[k]-t[k])
+					if alwaysCreateDeltaVars
+						dbar[i] = @variable(m) #,lower_bound=0,upper_bound=tmax[k]-t[k])
+					    fix(dbar[i],0)
+					else
+                    	dbar[i] = @variable(m,lower_bound=0,upper_bound=tmax[k]-t[k])
+					end
                 end
                 @constraint(m,[i in _V[k+1] ], sum( _D[i,j]*x[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
                 if !isempty(dvrhs)
@@ -150,20 +156,20 @@ end
                     set_upper_bound(z[_V[k+1]],1)
                     @constraint(m, [i in _V[k+1]], dbar[i] <= (tmax[k]-t[k])*z[k])
                 end
-            else
-                @constraint(m,[i in _V[k+1] ], t[k]-sum( _D[i,j]*x[j] for j in _D[i,:].nzind) >= 0)
+            else # t[k] = tmax[k]
+            	@constraint(m,[i in _V[k+1] ], t[k]-sum( _D[i,j]*x[j] for j in _D[i,:].nzind) >= 0)
             end
         else
             _N[k+1] = oarIdxs #firstIndices[k]:firstIndices[k+1]-1
         end
     end
 
-    infeas, numAdded = addMostViolated!(m,LAZY_CONS_PERORGAN_INIT_NUM,xinit,t,tmax,β,false,isempty(dvrhs))
+    infeas, numAdded = addMostViolated!(m, LAZY_CONS_PERORGAN_INIT_NUM, xinit, t, tmax, β, false, isempty(dvrhs), alwaysCreateDeltaVars)
     if __DEBUG >= DEBUG_LOW
         @show length(_V), infeas, numAdded
     end
 
-	if λ[1] > 0
+	if λ[1] > 0   # ???
 		@expression(m, reg1, λ[1]*sum(x[i] for i=1nb))
 	else
 		@expression(m, reg1, 0)
@@ -177,9 +183,13 @@ end
 		@expression(m, reg2, 0)
 	end
 
-    if β > 0 # penalty coefficient of DV related term in objective
+    if β > 0 || alwaysCreateDeltaVars # penalty coefficient of DV related term in objective
         dbar = m[:dbar]
 #        @objective(m, Max, g-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for k=2:length(_V),i in _V[k]))
+		if β == 0
+			β = 1e-7
+		end
+		println("setting up problem for β=",β)
         @objective(m, Max, g -β*sum(dbar[i]^DEV_VAR_OBJ_NORM for k=2:length(_V) if tmax[k-1]>t[k-1] for i in _V[k] ) + reg1 + reg2)
     else
         @objective(m, Max, g + reg1 + reg2)
@@ -190,7 +200,6 @@ end
     #write_to_file(m,"DBGModel.lp")
     return m
 end
-
 
 function computeProjections(γ, gamma_func, phi_under, phi_bar,dists=[])
     n, nn = size(γ)
@@ -289,7 +298,7 @@ function getValidBetaInterval(m,t,tmax)
     return deltaDec,deltaInc
 end
 
-function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = true)
+function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = true, alwaysAddDbarVars = false)
     #adds n most violated constraints
     # m - model
     # n - num constraint per organ to add
@@ -344,7 +353,6 @@ function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = tr
 					deleteat!(_N[k+1], sort!(violIdxs))
 				else
 					if first_not_viol_ind > 1  #
-
 						#    if first_not_viol_ind>1
 						violIdxs = sort!(violIdxs[1:first_not_viol_ind-1])
 						if !fromVOnly # tmax[k]==t[k]
@@ -360,12 +368,16 @@ function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = tr
             num_const_added_aor += length(indicesToAdd)
             xx = m[:x]
             dbar = []
-            if t[k]<tmax[k] || β > 0
+            if t[k]<tmax[k] || β > 0 || alwaysAddDbarVars
                 dbar = m[:dbar]
             end
+
             for l=1:length(indicesToAdd)
-                if β>0 || t[k]<tmax[k]
+                if β>0 || t[k]<tmax[k] || alwaysAddDbarVars
                     dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k],start = viol[violIdxs[l]])
+					if alwaysAddDbarVars
+						fix(dbar[indicesToAdd[l]],0,force=true)
+					end
                     if t[k]<tmax[k] && !noDVCons
                         @assert(tmax[k]-t[k] >= 1)
                         unfix(z[indicesToAdd[l]])
@@ -375,13 +387,16 @@ function addMostViolated!(m, n, x, t, tmax, β, fromVOnly = false, noDVCons = tr
                     end
                 end
             end
-            if β > 0
+            if β > 0 || alwaysAddDbarVars
                 obj = objective_function(m, QuadExpr)
                 #@objec#tive(m, M#ax, ob#j-β*sum(dbar[i]^SURPLUS_VAR_OBJ_NORM for i in indicesToAdd))
+				#if β == 0
+				#	β = BETA_EPS
+				#end
                 @objective(m, Max, obj-β*sum(dbar[i] for i in indicesToAdd))
             end
 
-            if t[k]<tmax[k] && (!noDVCons || β > 0)
+            if t[k]<tmax[k] && (!noDVCons || β > 0 || alwaysAddDbarVars)
                 @constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) - dbar[i] <= t[k])
             else
                 @constraint(m,[i in indicesToAdd], t[k]-sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) >= 0)
@@ -477,12 +492,19 @@ function findViolatingPairs!(m,consCollect,μ,L,phi_u_n,phi_b_n,dists,d)
     return maxviol
 end
 
-
-function evaluateDevNum(dbar, t, tmax)
+function evaluateDevNum(m, t, tmax)
+	dbar = m[:dbar]
     cntVec = zeros(length(_V)-1,1)
+	objFunc = objective_function(m)
     for k=2:length(_V)
         if t[k-1]<tmax[k-1]
             for i in _V[k]
+				if __DEBUG>=DEBUG_LOW
+					if i == first(_V[k])
+						println("***************** β from objective function: ", coefficient(objFunc,dbar[i]))
+					end
+					@assert(!is_fixed(dbar[i]))
+				end
                 if (value(dbar[i]) > DBARNZTH)
                     cntVec[k-1] += 1
                 end
@@ -501,21 +523,21 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n,
     objValVec = zeros(0)
     iter = 0
     while (β<βstop)
-        m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+        m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
         g = m[:g]
         append!(objValVec,value(g))
         deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
         βUb = β - deltaDec #+ deltaInc
-        βLb = β - deltaInc #+ deltaDec # deltaDec should be negative
-        if βLb > βPrev #(htCn+homCn > 0 && βLb > βPrev) # if generated cuts and upper bound for validity of basis is less than the previous beta
+        βLb = β - deltaInc #+ deltaDec
+        if βUb < βPrev #(htCn+homCn > 0 && βLb > βPrev) # if generated cuts and upper bound for validity of basis is less than the previous beta
             #βprev = β
-            β = βLb - BETA_EPS
+            β = βUb + BETA_EPS
             if __DEBUG >= DEBUG_LOW
-                println("backtracking to lower beta, β= ",β )
+                println("reverting to larger beta, β= ",β )
             end
         else
-            dbar = m[:dbar]
-            devVec = evaluateDevNum(value.(dbar),t,tmax) # function that returns deviation vector with dimension of OAR num
+#            dbar = m[:dbar]
+            devVec = evaluateDevNum(m,t,tmax) # function that returns deviation vector with dimension of OAR num
             @show devVec, dvrhs
             if (all(devVec.<dvrhs))
                 println("******* ended parametricSolve after all DVC are satisfied, iter = ", iter, " beta = ",β)
@@ -525,7 +547,7 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n,
                 println("******* parametricSolve iter: ", iter, " beta = ",β)
             end
             βprev = β
-            β = βUb + BETA_EPS
+            β = βLb - BETA_EPS
         end
         append!(βvec,β)
     end
@@ -534,65 +556,112 @@ end
 
 
 function betaBisection!(m,betaUb,dvrhs,Din,firstIndices,t,tmax,μ,phi_u_n,phi_b_n,dists,L)
+
+	global βlb,βub
 	βlb = 0
 	βub = betaUb
 	dvlhs = zeros(length(t))
-	idx = findall(x->x==0,tmax-t)
+	idx = findall(x->x>0,tmax-t)
 	idx = idx[1]
-	dbar = m[:dbar]
 
-	while betaUb > BETA_EPS #any(dvrhs-dvlhs > BISECTION_GAP)
-		βmid = (βub-βlb)/2
-		println("In betaBisection, current βmid=",βmid)
-		m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,tmax,[],βmid,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
-		dvlhs = evaluateDevNum(dbar,t,tmax) # function that returns deviation vector with dimension of OAR num
+	while βub > BETA_EPS #any(dvrhs-dvlhs > BISECTION_GAP)
+		global βlb, βub
+		βmid = βub*W+βlb*(1-W)
+		println("********* In betaBisection, current βmid=",βmid)
+		m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βmid,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		#dbar = m[:dbar]
+		dvlhs = evaluateDevNum(m,t,tmax) # function that returns deviation vector with dimension of OAR num
 		@show dvlhs, dvrhs
-		if dvlhs[idx]+BISECTION_GAP < dvrhs[idx]
-			βub = βmid
-		elseif dvlhs[idx] > dvrhs[idx]
-			βlb = βmid
-		else
+		if dvlhs[idx] + BISECTION_GAP > dvrhs[idx] && dvlhs[idx] <= dvrhs[idx]
 			break
+		elseif dvrhs[idx] > dvlhs[idx]
+			βub = βmid
+		else # dvlhs[idx] > dvrhs[idx]
+			βlb = βmid
 		end
 	end
-	return βlb
+	return βub*W+βlb*(1-W)
 end
+
+
+function getBasisXandDelta(model)
+	x = model[:x]
+	baseX = MOI.get(model, MOI.VariableBasisStatus(), x)
+	basicXIdxs = findall(x->x==BASIC,baseX)
+
+#	dbar = m[:dbar] = Dict()
+  	basicDeltaIdxs = SortedSet{Int64}()
+	dbarVarDict = model[:dbar]
+	for (key,val) in dbarVarDict
+		baseDelta = MOI.get(model, MOI.VariableBasisStatus(), val)
+		if baseDelta == BASIC
+			insert!(basicDeltaIdxs,key)
+		end
+	end
+	return basicXIdxs, basicDeltaIdxs
+end
+
+# basesAdjacent - assume idx vectors are sorted
+function basesAdjacent(basicXIdxs1, basicDeltaIdxs1, basicXIdxs2, basicDeltaIdxs2)
+	if abs(length(basicXIdxs1)-length(basicXIdxs2)>1)
+		return false
+	elseif abs(length(basicDeltaIdxs1)-length(basicDeltaIdxs2)>1)
+		return false
+	elseif abs(length(basicXIdxs1)+length(basicDeltaIdxs1)-length(basicXIdxs2)-length(basicDeltaIdxs2)>1)
+		return false
+	end
+	xDiff = symdiff(basicXIdxs1,basicXIdxs2)
+	if length(xDiff) > 2
+		return false
+	end
+	deltaDiff = symdiff(basicDeltaIdxs1,basicDeltaIdxs2)
+	if length(xDiff) + length(deltaDiff) > 2
+		return false
+	else
+		return true  # if size of symmetric difference is less than equal to two (adj here includes case of same basis)
+	end
+end
+
 
 # parametricSolveDecreasing -
 function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L=1, βstop=0)
     global _V
     global _N
-    m = initModel(Din,firstIndices,t,t,[],0,phi_u_n)
-    m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,t,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+    m = @time initModel(Din, firstIndices, t, t, [], 0, phi_u_n, [0;0], 0) #, [], true)
+    m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,t,t,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
     initialG = value(m[:g])
-    cons = all_constraints(m, AffExpr, MOI.GreaterThan{Float64})
+	initialX = value.(m[:x])
     betaUb=0
+	cons = all_constraints(m, AffExpr, MOI.GreaterThan{Float64})
     for con in cons
         lam = dual(con)
         if (lam < -VIOL_EPS)
             error("negative dual var value, lam = ", lam)
         elseif lam > betaUb
             betaUb = lam
-        end
+		end
     end
-    #if __DEBUG >= DEBUG_LOW
-    #end
     m = nothing
     _V = nothing
     _N = nothing
     GC.gc()
-    m = initModel(Din,firstIndices,t,tmax,[],betaUb,phi_u_n)  # Improve here later by warm starting with the solution of previously solved constrained model
-	β= betaBisection!(m,betaUb,dvrhs,Din,firstIndices,t,tmax,μ,phi_u_n,phi_b_n,dists,L)
 
+	#m = @time initModel(Din, firstIndices, tmax, tmax, [], 0, phi_u_n, [0;0], 0, initialX) #, [], true)
+	#m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,t,t,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+
+    m = @time initModel(Din,firstIndices,t,tmax,[],betaUb,phi_u_n,[0;0], 0, initialX)  # Improve here later by warm starting with the solution of previously solved constrained model
+	#unfixDeltaVariables!(m,t,tmax)
+	β = betaBisection!(m,betaUb,dvrhs,Din,firstIndices,t,tmax,μ,phi_u_n,phi_b_n,dists,L)
+	println("************** after betaBisection, β = ", β)
     βprev = β
     βvec = []
     gVec = []
 	dvMat = []
     iter = 0
     while (β>βstop-BETA_EPS)
-        m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
-		dbar = m[:dbar]
-		devVec = evaluateDevNum(dbar,t,tmax) # function that returns deviation vector with dimension of OAR num
+        m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		#dbar = m[:dbar]
+		devVec = evaluateDevNum(m,t,tmax) # function that returns deviation vector with dimension of OAR num
         append!(gVec,value(m[:g]))
         append!(βvec,value(β))
 		if isempty(dvMat)
@@ -600,7 +669,7 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		else
 			dvMat = hcat(dvMat,devVec)
 		end
-		println("In parametricSolveDecreasing! loop iter=", iter, " beta= ",β, "  g=", last(gVec))
+		println("In parametricSolveDecreasing! loop iter =", iter, " beta= ",β, "  g=", last(gVec))
 		@show devVec, dvrhs
 
         deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
@@ -612,8 +681,7 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
             if (any(devVec.>dvrhs))
                 println("******* Ended parametricSolveDecrease after DVC violated, iter = ", iter, " beta = ",β, " reverting to beta = ", βprev)
                 β = βprev
-                pop!(βvec)
-                m, htCn, homCn = robustCuttingPlaneAlg(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+                m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
                 break
             else
                 iter+=1
@@ -629,7 +697,24 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 end
 
 
-function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, λ, ϕ, L=1, m=nothing)
+function unfixDeltaVariables!(m,t,tmax)
+	dbarVarDict = m[:dbar]
+	for k=2:length(_V)
+		if tmax[k-1]>t[k-1]
+			for i in _V[k]
+				if is_fixed(dbarVarDict[i])
+					unfix( dbarVarDict[i])
+					set_lower_bound( dbarVarDict[i],0)
+					set_upper_bound( dbarVarDict[i],tmax[k-1]-t[k-1])
+				else
+					error("delta var not fixed in unfixDeltaVariables!")
+				end
+			end
+		end
+	end
+end
+
+function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, λ, ϕ, L=1, m=nothing, alwaysCreateDeltaVars=false)
 
     δ=maximum(phi_b_n-phi_u_n)./2
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
@@ -639,17 +724,20 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
         model = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ,ϕ)
     else
         dbarVarDict = model[:dbar]
-        for (key,val) in dbarVarDict
-            set_objective_coefficient(model, val, -β)
-        end
-		#set_optimizer_attribute(model,"CPX_PARAM_LPMETHOD",1)
-    end
-    iter=0
+        #for (key,val) in dbarVarDict
+		for k=2:length(_V)
+			if tmax[k-1]>t[k-1]
+				for i in _V[k]
+	        		set_objective_coefficient(model,dbarVarDict[i], -β)
+        		end
+    		end
+		end
+	end
+	iter=0
     addedDVCons = false
     stage = 1
     sum_num_const_added_aor = 0 #LAZY_CONS_PERORGAN_INIT_NUM  # this single counter is initialized to the initial number per organ??
     sum_num_const_added_hom = 0
-
 
     while(true)
         iter=iter+1
@@ -661,7 +749,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
         #@time
         xVar = model[:x]
         x = []
-        @time for it = 1:MAX_LAZY_CON_IT
+        for it = 1:MAX_LAZY_CON_IT
             solveModel!(model,firstIndices)
             newObj=JuMP.objective_value(model)
             x = value.(xVar)
@@ -679,7 +767,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
             #    println("Max violation wrt to t in _V: ", max_viol_dev, " Num of cons with dev added: ", num_const_added_wdv)
             #xx =  value.(model[:x])
             prev_viol_aor = max_viol_aor
-            max_viol_aor, num_const_added_aor = addMostViolated!(model, LAZY_CONS_PERORGAN_NUM_PER_ITER, x, t, tmax,β,false,isempty(dvrhs))
+            max_viol_aor, num_const_added_aor = addMostViolated!(model, LAZY_CONS_PERORGAN_NUM_PER_ITER, x, t, tmax,β,false,isempty(dvrhs),alwaysCreateDeltaVars)
             if __DEBUG >= DEBUG_LOW
                 println("max_viol_aor= ", max_viol_aor, "  num_const_added_aor =", num_const_added_aor)
             end
@@ -717,7 +805,7 @@ function robustCuttingPlaneAlg(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi
             constr_num = length(consCollect)
         end
         if stage==2 && constr_num == 0#max_viol_hom<=MAX_VIOL_EPS && max_viol_aor<=MAX_VIOL_EPS #&& (isempty(dvrhs) || num_const_added_wdv == 0 )# no violated inequalities found
-            #println("Terminating cut algorithm.. iter=", iter)
+            println("Terminating cut algorithm.. outer iter=", iter, " Objective value: ", newObj, )
             break
         elseif constr_num > 0 || max_viol_hom > MAX_VIOL_EPS
             #stage=1
@@ -774,6 +862,8 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
     xVar = m[:x]
     println("Min PTV bio dose, g=",value(gVar))
     x = value.(xVar)
+
+	println("Physical dose summary (including for TV):")
     if verbose
         for k=1:length(_V)
             dose = _D[[_V[k];_N[k]],:]*x
@@ -796,7 +886,7 @@ function printDoseVolume(m, t = [], tmax = [], doseVol = false, verbose = false)
                 #end
                 #savefig("zlikehist.png")
             end
-            println("Structure: ", k, " Max (phys) dose: ", maximum(dose), " Min (phys) dose: ", minimum(dose), " 90%-tile: ", quantile!(dose,0.90), " 70%-tile: ", quantile!(dose,0.70)  , " vox num exceeding t: " , numDev, " sum dbar/(tmax-t) :", sumZVar)
+            println("Structure: ", k, " Max dose: ", maximum(dose), " Mean dose: ", mean(dose),  " Min dose: ", minimum(dose), " 90%-tile: ", quantile!(dose,0.90), " 70%-tile: ", quantile!(dose,0.70)  , " vox num exceeding t: " , numDev, " sum dbar/(tmax-t) :", sumZVar)
         end
     end
 

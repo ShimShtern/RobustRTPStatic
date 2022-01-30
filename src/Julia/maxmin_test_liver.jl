@@ -13,25 +13,27 @@ const bLOAD_FROM_FILE_projection = false
 const bSAVE_FILES = false
 const bSAVE_DISTORPROJ_FILES = false
 
-#file = matopen("liverEx2.mat")
-#ρ = [0.99; 1; 1]
-const ρ = [0.7; 0.5]# 1]
+#file = matopen("liverEx_2.mat")
+#const ρ = [0.7; 1; 1] #0.5]# 1]
+#const ρ = [1; 0.5; 1] #0.5]# 1]
 # In the Liver data the 1st OAR is liver, 2nd OAR is heart
-const t = [30.0 ; 50.0]
-const tmax = [60.0 ; 50.0]
-#t = [62; 54; 100]
-#t=[60; 54; 100]
-#tmax = [62; 54; 100]
+#const t = [60.0 ; 40.0; 60]
+#const tmax = [60.0 ; 50.0; 60]
+
+
+# brain
+file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
+ const ρ = [0.99; 1; 1]
+ const t= [60; 54; 100]
+ const tmax = [62; 54; 100]
 
 #λ=0 #unused reg param
-β = 1e-6
-μ = 1.2 #1.45 #1.45 #1.25 #1.1
+β = 0
+μ = 1.15 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1
 gamma_const=0.051
 
 gamma_func(x) = 1*(x>0) #(x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
-file = matopen("liverEx_2.mat")
-#file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
 γ = read(file, "neighbors_Mat")
 ϕ = read(file, "omf_Vec")
 
@@ -58,10 +60,10 @@ else
     nb = size(inD, 2)
     D = spzeros(0, nb)
     firstIndices = [] # vector of indices of first voxels for each of the stuctures
-    dvrhs = zeros(length(V) - 2)
+    dvrhs = zeros(length(t)) #zeros(length(V) - 1)
 
     # skipping the last strucure that includes dead voxels?
-    for k = 1:length(V)-1
+    for k = 1:length(t)+1 #length(V)-1
         if k > 1 #size(D,1)>0
             println(size(D))
             global firstIndices = [firstIndices; size(D, 1) + 1]
@@ -73,7 +75,6 @@ else
         appendD = inD[idxs, :]
         rowN, colN = size(appendD)
         println("For struct: ", k, " appending submat of D of size: ", size(appendD))
-
         if rowN > 0
             global D = [D; appendD]
             if k > 1
