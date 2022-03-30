@@ -275,6 +275,7 @@ function solveModel!(m,firstIndices)
 end
 
 function getValidBetaInterval(m,t,tmax)
+	global _V
     dbar = m[:dbar]
     report = lp_sensitivity_report(m,atol=1e-6)
     deltaInc = Inf

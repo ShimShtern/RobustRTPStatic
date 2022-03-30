@@ -43,8 +43,21 @@ global _V
 
 	W = dvrhs[idx]/violNumLb
 	println("betaLb=", betaLb, " betaUb=", betaUb," violNumLb=", violNumLb)
-	beta=(1-W)*betaLb+W*betaUb
+	dbar=m[:dbar]
+	for i in keys(dbar)
+		set_objective_coefficient(m, dbar[i], -betaLb)
+	end
+	optimize!(m)
 	delete(m,m[:Budget][idx])
+	set_optimizer_attribute(m,"Method",4)
 	optimize!(m)
 
 	β = maxmin_twostage_subprob.betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
+	set_optimizer_attribute(m, "NumericFocus", 3)
+	basicXIdxsPrev = []
+	basicDeltaIdxsPrev = []
+	#β=72.229
+	m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
+	basicXIdxs, basicDeltaIdxs = maxmin_twostage_subprob.getBasisXandDelta(m)
+	deltaDec,deltaInc = maxmin_twostage_subprob.getValidBetaInterval(m,t,tmax)
