@@ -8,18 +8,18 @@ using JuMP
 using SparseArrays
 using FileIO, JLD2
 using Printf
-bLOAD_FROM_FILE=true
-bLOAD_FROM_FILE_gamma=true
-bLOAD_FROM_FILE_projection = true
-bSAVE_FILES = false
-bSAVE_DISTORPROJ_FILES = false
+bLOAD_FROM_FILE=false
+bLOAD_FROM_FILE_gamma=false
+bLOAD_FROM_FILE_projection = false
+bSAVE_FILES = true
+bSAVE_DISTORPROJ_FILES = true
 
 #file = matopen("liverEx2.mat")
-#ρ = [0.99; 1; 1]
-ρ = [1; 1; 1]
+ρ = [0.99; 1; 1]
+#ρ = [1; 1; 1]
 #t = [40.0 ; 40.0]
-t = [62; 54; 100]
-#t=[60; 54; 100]
+#t = [62; 54; 100]
+t=[60; 54; 100]
 tmax = [62; 54; 100]
 #β = 0.01
 β = 0 #1e-8 # coeficient do deal with dose volume constraint
@@ -48,7 +48,7 @@ firstIndices = []
 dvrhs = []
 
 if bLOAD_FROM_FILE
-    D = FileIO.load("D_formatted.jld2", "D")
+    D = FileIO.load("Patient4_D_formatted.jld2", "D")
     firstIndices, dvrhs = FileIO.load("D_formatted.jld2", "firstIndices", "dvrhs")
 else
     file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
@@ -115,7 +115,7 @@ else
     end
     if bSAVE_FILES
         FileIO.save(
-            "D_formatted.jld2",
+            "Patient4_D_formatted.jld2",
             "D",
             D,
             "firstIndices",
@@ -143,8 +143,10 @@ println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = "
 phi_u_n=[]
 phi_b_n=[]
 dists=[]
-file_name_gamma=@sprintf("./RS_Dists/Gamma_dist_new_%1.3f.jld2",gamma_const)
-file_name_proj=@sprintf("./Projections/Projection_new_%1.3f_%1.3f.jld2",gamma_const,δ)
+#file_name_gamma=@sprintf("./RS_Dists/Gamma_dist_new_%1.3f.jld2",gamma_const)
+file_name_gamma=@sprintf("./RS_Dists/Patient4_Gamma_dist_new_%1.3f.jld2",gamma_const)
+#file_name_proj=@sprintf("./Projections/Projection_new_%1.3f_%1.3f.jld2",gamma_const,δ)
+file_name_proj=@sprintf("./Projections/Patient4_Projection_new_%1.3f_%1.3f.jld2",gamma_const,δ)
 if bLOAD_FROM_FILE_gamma
     dists = FileIO.load(file_name_gamma,"dists")
 else

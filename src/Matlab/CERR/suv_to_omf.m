@@ -1,4 +1,4 @@
-function [omf, Mask_PTV_deadcells] = suv_to_omf(suvM, Mask,Mask_PTV)
+ function [omf, Mask_PTV_deadcells] = suv_to_omf(suvM, Mask,Mask_PTV)
 %UNTITLED Summary of this function goes here
 %   Detailed explanation goes here
 EPS = 1e-3;
