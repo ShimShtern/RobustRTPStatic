@@ -114,6 +114,7 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
 
     ptvn = length(_V[1])
     @variable(m,g)
+
     if isempty(phi_u_n)  # if not given then initialize phi to unity to solve problem with physical dose
         phi_u_n = ones(ptvn,1)
         phi_b_n = ones(ptvn,1)
@@ -168,10 +169,9 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
             _N[k+1] = oarIdxs #firstIndices[k]:firstIndices[k+1]-1
         end
     end
-	@show alwaysCreateDeltaVars
+
     infeas, numAdded = addMostViolated!(m, LAZY_CONS_PERORGAN_INIT_NUM, xinit, t, tmax, β, alwaysCreateDeltaVars)
-    @show length(_V[2]) length(m[:dbar])
-	if __DEBUG >= DEBUG_LOW
+    if __DEBUG >= DEBUG_LOW
         @show length(_V), infeas, numAdded
     end
 
@@ -386,7 +386,7 @@ function addMostViolated!(m, n, x, t, tmax, β, alwaysAddDbarVars = false, idxOf
 				end
 				@constraint(m,[i in indicesToAdd], sum( _D[i,j]*xx[j] for j in _D[i,:].nzind)-t[k] <= 0)
 			else
-                @constraint(m,[i in indicesToAdd], t[k]-sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) >= 0)
+				@constraint(m,[i in indicesToAdd], t[k]-sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) >= 0)
 			end
 			#end
 			if __DEBUG >= DEBUG_LOW
@@ -503,12 +503,13 @@ function evaluateDevNum(m, t, tmax)
     for k=2:length(_V)
         if t[k-1]<tmax[k-1]
             for i in _V[k]
-				if __DEBUG>=DEBUG_LOW
+				if __DEBUG >= DEBUG_LOW
 					if i == first(_V[k])
 						println("***************** β from objective function: ", coefficient(objFunc,dbar[i]))
 					end
 					@assert(!is_fixed(dbar[i]))
 				end
+				#@show k, i, t, tmax
                 if (value(dbar[i]) > DBARNZTH)
                     cntVec[k-1] += 1
 					sumVec[k-1] += value.dbar[i]
@@ -573,8 +574,9 @@ end
 function getBasisXandDelta(model)
 	x = model[:x]
 	baseX = MOI.get.(model, MOI.VariableBasisStatus(), x)
-	basicXIdxs = findall(x->x == MOI.BASIC,baseX)
-
+	#baseX = MOI.get(model, MOI.ConstraintBasisStatus(), LowerBoundRef(x))
+	#basicXIdxs = findall(x->x == MOI.NONBASIC,baseX) # nonbasic LB constraint means basic variable
+    basicXIdxs = findall(x->x == MOI.BASIC,baseX)
 #	dbar = m[:dbar] = Dict()
   	basicDeltaIdxs = SortedSet{Int64}()
 	dbarVarDict = model[:dbar]
@@ -865,7 +867,6 @@ function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, ph
 		end
 	end
 	iter=0
-    addedDVCons = false
     stage = 1
     sum_num_const_added_oar = 0 #LAZY_CONS_PERORGAN_INIT_NUM  # this single counter is initialized to the initial number per organ??
     sum_num_const_added_hom = 0
