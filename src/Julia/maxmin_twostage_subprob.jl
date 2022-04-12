@@ -568,7 +568,7 @@ function betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ
 			end
 		end
 	end
-	return βub*W+βlb*(1-W)
+	return  βub*W+βlb*(1-W), βlb, βub
 end
 
 # getBasisXandDelta
@@ -782,7 +782,7 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	#@assert(W>0)
 
 	#unfixDeltaVariables!(m,t,tmax)
-	β = betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
+	β,  βLb, βUb = betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
 	println("************** after betaBisection, β = ", β)
 	set_optimizer_attribute(m, "NumericFocus", 3)
     βprev = β
@@ -792,7 +792,7 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	basicXIdxsPrev = []
 	basicDeltaIdxsPrev = []
     iter = 0
-    while (β>betaLb)
+    while (β>βLbB)
 		iter+=1
         m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 		devVec, devSum = evaluateDevNumNoDbarvalue(m,t,tmax) # function that returns deviation vector with dimension of OAR num
@@ -810,17 +810,17 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		end
 
         deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
-        βUb = β - deltaDec #+ deltaInc
-        βLb = max(β - deltaInc,0) #deltaDec # deltaDec should be negative
+        βUbB = min(β - deltaDec,βUb) #+ deltaInc
+        βLbB = max(β - deltaInc,βLb) #deltaDec # deltaDec should be negative
 
 		βprev = β
 		if devVec[idx] <= dvrhs[idx]      #βUb + BETA_EPS < βprev && any(devVec.>dvrhs)
 			# if generated cuts and lower bound for validity of basis exceeds the previous beta
-			β = βLb - BETA_EPS
+			β = βLbB - BETA_EPS
         else
-			betaLb = β
+			#betaLb = β
             println("******* parametricSolveDecrease after DVC violated, iter = ", iter, " beta = ",β, " reverting to larger beta = ", βUb + BETA_EPS)
-			β = βUb + BETA_EPS
+			β = βUbB + BETA_EPS
 			basicXIdxsPrev, basicDeltaIdxsPrev = getBasisXandDelta(m)
         end
     end
