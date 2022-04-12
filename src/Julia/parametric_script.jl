@@ -115,7 +115,7 @@ file_name_proj=@sprintf("./Projections/PPatient4_Visit1_rojection_new_%1.3f_%1.3
 phi_u_n = ϕ
 phi_b_n = ϕ
 
-
+Din=D
 global _V
   global _N
 	L=200
