@@ -21,7 +21,7 @@ const DEBUG_LOW = 1
 const DEBUG_MED = 2
 const DEBUG_HIGH = 3
 const __DEBUG = NO_DEBUG #NO_DEBUG  #true
-const __SOLVER_DEBUG = 1
+const __SOLVER_DEBUG = 0 #1
 
 #using Plots
 const INITXNORM = 100
@@ -34,8 +34,8 @@ const UNIFORM_GAMMA = true
 
 const LAZY_CONS_PERORGAN_TH = 5e4 # 5e3 #1e5 #5e4
 const LAZY_CONS_PERORGAN_INIT_NUM = 400		#maximum number of constraints for OAR added in model initialization
-const LAZY_CONS_PERORGAN_NUM_PER_ITER = 100 #maximum number of constraints for OAR added in each iteration
-const MAX_LAZY_CON_IT = 10e6					#maximum number of iterations done for adding OAR constraints
+const LAZY_CONS_PERORGAN_NUM_PER_ITER = 200 #maximum number of constraints for OAR added in each iteration
+const MAX_LAZY_CON_IT = 1e6		#maximum number of iterations done for adding OAR constraints
 
 const LAZYCONS_TIGHT_TH = 0.01
 const MAX_VIOL_RATIO_TH = 0.01
@@ -64,6 +64,8 @@ global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
 global _V
 global _N # voxels by organ not loaded into optimization
+global _dbarIdxToGrbIdx
+global _GrbIdxToDbarIdx
 
 export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computeProjections, parametricSolveDecreasing
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
@@ -71,20 +73,14 @@ export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computePr
 # Load Optimizer and model
 
 
-function initDoseVolume(m, t, tmax, dvrhs)
-    println("initDoseVolume....")
-    for k =1:length(t)
-        if tmax[k] > t[k]
-            @variable(m, z[[_V[k+1];_N[k+1]]]==0)
-            @constraint(m,dos_vol[k],dvrhs[k]-sum(z[i] for i in _V[k+1] ) - sum(z[i] for i in _N[k+1] ) >= 0 )
-            println("Adding dose vol cons for organ k=", k, " dvrhs[k]=", dvrhs[k])
-        end
-    end
-    return m
+function clearGlobalRunData()
+	_V = nothing
+	_N = nothing
+	_dbarIdxToGrbIdx = nothing
+	_GrbIdxToDbarIdx = nothing
+	gc()
 end
 
-
-#
 function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_nom=0, xinit=[], alwaysCreateDeltaVars=false, idxOfGreaterThanCons=1)
     n, nb = size(Din)
     #_rowLoc = spzeros(n,1)
@@ -96,9 +92,14 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
         println("Init Model Start......................")
 		@show t,tmax,β
     end
+	global _dbarIdxToGrbIdx = Dict{Int64,Cint}()
+	global _GrbIdxToDbarIdx = Dict{Cint,Int64}()
     #m = Model(() ->SCS.Optimizer())
 	#m = Model(()-> CPLEX.Optimizer())
-	m = Model(() -> Gurobi.Optimizer(GRB_ENV))
+	#m = Model(() -> Gurobi.Optimizer(GRB_ENV))
+	m = direct_model(Gurobi.Optimizer(GRB_ENV))
+	grb = unsafe_backend(m)
+
 	MOI.set(m, MOI.Silent(), true)
 	#MOI.set(m, MOI.NumberOfThreads(), 3)
 	#set_optimizer_attribute(m,"CPX_PARAM_LPMETHOD",4)
@@ -148,6 +149,9 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
 					    fix(dbar[i],0)
 					else
                     	dbar[i] = @variable(m,lower_bound=0,upper_bound=tmax[k]-t[k])
+						grbIdx = Gurobi.column(grb,index(dbar[i]))
+						_dbarIdxToGrbIdx[i] = grbIdx
+						_GrbIdxToDbarIdx[grbIdx] = i
 					end
                 end
                 @constraint(m,[i in _V[k+1] ], t[k]-sum( _D[i,j]*x[j] for j in _D[i,:].nzind) + dbar[i] >= 0)
@@ -171,7 +175,7 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
     end
 
     infeas, numAdded = addMostViolated!(m, LAZY_CONS_PERORGAN_INIT_NUM, xinit, t, tmax, β, alwaysCreateDeltaVars)
-    if __DEBUG >= DEBUG_LOW
+    if __DEBUG >= DEBUG_MED
         @show length(_V), infeas, numAdded
     end
 
@@ -211,6 +215,8 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
 	@show length(_V[2]) length(m[:dbar])
     return m
 end
+
+
 
 function computeProjections(γ, gamma_func, phi_under, phi_bar,dists=[])
     n, nn = size(γ)
@@ -277,37 +283,91 @@ end
 function getValidBetaInterval(m,t,tmax)
 	global _V
     dbar = m[:dbar]
-    report = lp_sensitivity_report(m,atol=1e-6)
+	x = m[:x]
+	xVec = value.(x)
+	g = m[:g]
+
+	grb = unsafe_backend(m)
+	# the code below assumes that the Gurobi variable idx for g is 0, otherwise need to determine it
+	gIdx = Gurobi.column(grb,index(g))
+
+	#report = lp_sensitivity_report(m,atol=1e-6)
+	#basis = Vector{Cint}(undef,num_constraints)
+	num_constr = MOI.get(m, Gurobi.ModelAttribute("NumConstrs")) # num_constraints(m,AffExpr)
+	num_vars = MOI.get(m, Gurobi.ModelAttribute("NumVars"))
+
+	basisVec = Vector{Cint}(undef,num_constr)
+	GRBgetBasisHead(grb,basisVec)
+	basicDbar = Vector{Int64}(intersect(basisVec,keys(_GrbIdxToDbarIdx)))
+
+	objfun = objective_function(m)
+	@assert(length(dbar)>0)
+	β = coefficient(objfun,first(values(dbar)))
+
+	nonbasicVec = SortedSet(1:num_vars)
+	setdiff!(nonbasicVec,SortedSet(basisVec))
+
     deltaInc = Inf
     deltaDec = -Inf
-    for k=2:length(_V)
-        if tmax[k-1]>t[k-1]
-            for i in _V[k]
-                dbarDeltaDn, dbarDeltaUp = report[dbar[i]]
-				#if (dbarDeltaDn > dbarDeltaUp)
-				#	error("dbarDeltaDn > dbarDeltaUp ",dbarDeltaDn, " " ,dbarDeltaUp)
-				#end
-                if dbarDeltaUp < deltaInc
-                    deltaInc = dbarDeltaUp
-                    if deltaInc < -BETA_DELTA_NZ_TH
-						if __DEBUG >= DEBUG_LOW
-                        	println("error in allowable increase, var idx: ", i, " deltaInc=", deltaInc)
-						end
-						deltaInc = 0
-                    end
-                end
-                if dbarDeltaDn > deltaDec
-                    deltaDec = dbarDeltaDn
-                    if deltaDec > BETA_DELTA_NZ_TH
-						if __DEBUG >= DEBUG_LOW
-                        	println("error in allowable decrease, var idx: ", i, " deltaDec=", deltaDec)
-						end
-						deltaDec = 0
-                    end
-                end
-            end
-        end
-    end
+
+	for colIdx in nonbasicVec
+		#colIdx = nonbasicVec[j]
+		binvAj = Vector{Cdouble}(undef,num_constr)
+		GRBBinvColj(grb, colIdx, Ref(binvAj))
+
+		zeroRedCostBeta = 0
+		if haskey(_GrbIdxToDbarIdx,colIdx) # if dbar variable
+			zeroRedcostBeta = binvAj[gIdx]/(1- sum(binvAj[basicDbar]))  # beta that sets red cost to 0 for dbar var
+		else
+			zeroRedCostBest = -binvAj[gIdx]/(sum(binvAj[basicDbar]))  # beta that sets red cost to 0 for other var
+		end
+
+		xDeltaUp = zeroRedCostBeta - β
+		if xDeltaUp > 0 && xDeltaUp < deltaInc
+			deltaInc = xDeltaUp
+		end
+		xDeltaDn = zeroRedCostBeta - β
+		if xDeltaDn < 0 && xDeltaDn > deltaDec
+			deltaDec = xDeltaDn
+		end
+	end
+	# for j=1:length(xVec)
+	# 	if xVec[i]==0 && x[j].VariableBasisStatus()!=BASIC
+	# 		binvAj = Vector{Cdouble}(undef,num_constr)
+	# 		idx = Gurobi.columns(grb,index(x[j]))
+	# 		GRBBinvColj(m, idx, binvAj)
+	# 		zeroRedcostBeta = -binvAj[0]/(sum(binvAj[basicDbar]))
+	# 		xDeltaUp = zeroRedcostBeta - β
+	# 		if xDeltaUp > 0 && xDeltaUp < deltaInc
+	# 			deltaInc = xDeltaUp
+	# 		end
+	# 		xDeltaDn = zeroRedcostBeta - β
+	# 		if xDeltaDn < 0 && xDeltaDn > deltaDec
+	# 			deltaDec = xDeltaDn
+	# 		end
+	# 	end
+	# end
+    # for k=2:length(_V)
+    #     if tmax[k-1]>t[k-1]
+    #         for i in _V[k]
+	# 			if value(dbar[i])==0 && dbar[i].VariableBasisStatus()!=BASIC
+	# 				binvAj = Vector{Cdouble}(undef,num_constr)
+	# 				idx = Gurobi.column(grb,index(dbar[i]))
+	# 				GRBBinvColj(m, idx, binvAj)
+	# 				zeroRedcostBeta = binvAj[1]/(1- sum(binvAj[basicDbar])) # assume first index is of g variable
+	# 				#dbarDeltaDn, dbarDeltaUp = report[dbar[i]]
+	# 				dbarDeltaUp = zeroRedcostBeta - β
+	# 				if dbarDeltaUp > 0 && dbarDeltaUp < deltaInc
+	# 					deltaInc = dbarDeltaUp
+	# 				end
+	# 				dbarDeltaDn = zeroRedcostBeta - β
+	# 				if dbarDeltaDn < 0 && dbarDeltaDn > deltaDec
+	# 					deltaDec = dbarDeltaDn
+	# 				end
+	# 			end
+    #         end
+    #     end
+    # end
     println("In getValidBetaInterval, dual_status(m): ", dual_status(m), " deltaDec=", deltaDec, " deltaInc=", deltaInc)
     return deltaDec,deltaInc
 end
@@ -322,6 +382,8 @@ function addMostViolated!(m, n, x, t, tmax, β, alwaysAddDbarVars = false, idxOf
 	global _D
 	global _V
 	#    x = value.(m[:x])
+	grb = unsafe_backend(m)
+
 	num_const_added_oar = 0
 	max_viol_oar = 0.0
 	for k in 1:length(_N)-1
@@ -365,10 +427,11 @@ function addMostViolated!(m, n, x, t, tmax, β, alwaysAddDbarVars = false, idxOf
 
 			if (β>0 || alwaysAddDbarVars) && t[k]<tmax[k]
 				for l=1:length(indicesToAdd)
-					dbar[indicesToAdd[l]] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k],start = viol[violIdxs[l]])
-					#if β==0 && alwaysAddDbarVars
-					#	fix(dbar[indicesToAdd[l]],0,force=true)
-					#end
+					dbarIdx = indicesToAdd[l]
+					dbar[dbarIdx] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k],start = viol[violIdxs[l]])
+					grbIdx = Gurobi.column(grb,index(dbar[dbarIdx]))
+					_dbarIdxToGrbIdx[dbarIdx] = grbIdx
+					_GrbIdxToDbarIdx[grbIdx] = dbarIdx
 				end
 				@assert(length(_V[k+1])==length(dbar))
 			end
@@ -378,7 +441,7 @@ function addMostViolated!(m, n, x, t, tmax, β, alwaysAddDbarVars = false, idxOf
 					println("addMostViolated! - adding constraints with dbar vars, k=", k)
 				end
 				@constraint(m,[i in indicesToAdd], t[k]-sum( _D[i,j]*xx[j] for j in _D[i,:].nzind) + dbar[i] >= 0)
-				obj = objective_function(m, AffExpr)
+				obj = objective_function(m, QuadExpr) # NG - previously AffExpr - error
 				#@show obj #, indicesToAdd
 				@objective(m, Max, obj-β*sum(dbar[i]^DEV_VAR_OBJ_NORM for i in indicesToAdd))
 			elseif k==idxOfLessThanCons
@@ -395,7 +458,9 @@ function addMostViolated!(m, n, x, t, tmax, β, alwaysAddDbarVars = false, idxOf
 			end
 		end
 	end
-	@show length(_V[2]) length(m[:dbar])
+	if __DEBUG >= DEBUG_LOW
+		@show length(_V[2]) length(m[:dbar])
+	end
 	return max_viol_oar, num_const_added_oar
 end
 
