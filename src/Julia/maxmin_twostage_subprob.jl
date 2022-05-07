@@ -48,6 +48,8 @@ const BETA_EPS = 5e-9 # used for parametricSolve routines
 const BETA_DELTA_NZ_TH = BETA_EPS-eps()
 const BISECTION_GAP = 50
 
+const SMALL_EPS = 1e-16 # used for sensitivity / basis validity interval calculations
+
 
 const DEV_VAR_OBJ_NORM = 1  # penalty norm either 1 or 2
 
@@ -64,8 +66,8 @@ global _D   # save D in order to load rows as needed
 #global _rowLoc # 0 - not loaded into optimization problem, rowLoc[i] > 0 indicates row in model constraint matrix
 global _V
 global _N # voxels by organ not loaded into optimization
-global _dbarIdxToGrbIdx
-global _GrbIdxToDbarIdx
+#global _dbarIdxToGrbIdx
+#global _GrbIdxToDbarIdx
 
 export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computeProjections, parametricSolveDecreasing
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
@@ -295,97 +297,132 @@ function solveModel!(m,firstIndices)
     return m
 end
 
-function getValidBetaInterval(m,t,tmax)
+# mutable struct mySvec
+# 	len :: Cint
+# 	ind :: Ptr{Cint}
+# 	val :: Ptr{Cdouble}
+# end
+
+
+function getValidBetaInterval(m, t, tmax)
+	println("In getValidBetaInterval..., dual_status(m): ", dual_status(m))
 	global _V
-    dbar = m[:dbar]
-	x = m[:x]
-	xVec = value.(x)
-	g = m[:g]
-
-	grb = unsafe_backend(m)
-	# the code below assumes that the Gurobi variable idx for g is 0, otherwise need to determine it
-	gIdx = Gurobi.column(grb,index(g))
-
-	#report = lp_sensitivity_report(m,atol=1e-6)
-	#basis = Vector{Cint}(undef,num_constraints)
-	num_constr = MOI.get(m, Gurobi.ModelAttribute("NumConstrs")) # num_constraints(m,AffExpr)
-	num_vars = MOI.get(m, Gurobi.ModelAttribute("NumVars"))
-
-	basisVec = Vector{Cint}(undef,num_constr)
-	GRBgetBasisHead(grb,basisVec)
-	basicDbar = Vector{Int64}(intersect(basisVec,keys(_GrbIdxToDbarIdx)))
-
-	objfun = objective_function(m)
-	@assert(length(dbar)>0)
-	β = coefficient(objfun,first(values(dbar)))
-
-	nonbasicVec = SortedSet(1:num_vars)
-	setdiff!(nonbasicVec,SortedSet(basisVec))
-
-    deltaInc = Inf
-    deltaDec = -Inf
-
-	for colIdx in nonbasicVec
-		#colIdx = nonbasicVec[j]
-		binvAj = Vector{Cdouble}(undef,num_constr)
-		GRBBinvColj(grb, colIdx, Ref(binvAj))
-
-		zeroRedCostBeta = 0
-		if haskey(_GrbIdxToDbarIdx,colIdx) # if dbar variable
-			zeroRedcostBeta = binvAj[gIdx]/(1- sum(binvAj[basicDbar]))  # beta that sets red cost to 0 for dbar var
-		else
-			zeroRedCostBest = -binvAj[gIdx]/(sum(binvAj[basicDbar]))  # beta that sets red cost to 0 for other var
+	dbarDic = m[:dbar]
+	lub = Inf64
+	glb = -Inf64
+	for (key,dbarVar) in dbarDic
+		lb = MOI.get(m, Gurobi.VariableAttribute("SAObjLow"), dbarVar)
+		if lb > glb
+			glb = lb
 		end
-
-		xDeltaUp = zeroRedCostBeta - β
-		if xDeltaUp > 0 && xDeltaUp < deltaInc
-			deltaInc = xDeltaUp
-		end
-		xDeltaDn = zeroRedCostBeta - β
-		if xDeltaDn < 0 && xDeltaDn > deltaDec
-			deltaDec = xDeltaDn
+		ub = MOI.get(m, Gurobi.VariableAttribute("SAObjUp"), dbarVar)
+		if ub < lub
+			lub = ub
 		end
 	end
-	# for j=1:length(xVec)
-	# 	if xVec[i]==0 && x[j].VariableBasisStatus()!=BASIC
-	# 		binvAj = Vector{Cdouble}(undef,num_constr)
-	# 		idx = Gurobi.columns(grb,index(x[j]))
-	# 		GRBBinvColj(m, idx, binvAj)
-	# 		zeroRedcostBeta = -binvAj[0]/(sum(binvAj[basicDbar]))
-	# 		xDeltaUp = zeroRedcostBeta - β
-	# 		if xDeltaUp > 0 && xDeltaUp < deltaInc
-	# 			deltaInc = xDeltaUp
-	# 		end
-	# 		xDeltaDn = zeroRedcostBeta - β
-	# 		if xDeltaDn < 0 && xDeltaDn > deltaDec
-	# 			deltaDec = xDeltaDn
-	# 		end
-	# 	end
-	# end
-    # for k=2:length(_V)
-    #     if tmax[k-1]>t[k-1]
-    #         for i in _V[k]
-	# 			if value(dbar[i])==0 && dbar[i].VariableBasisStatus()!=BASIC
-	# 				binvAj = Vector{Cdouble}(undef,num_constr)
-	# 				idx = Gurobi.column(grb,index(dbar[i]))
-	# 				GRBBinvColj(m, idx, binvAj)
-	# 				zeroRedcostBeta = binvAj[1]/(1- sum(binvAj[basicDbar])) # assume first index is of g variable
-	# 				#dbarDeltaDn, dbarDeltaUp = report[dbar[i]]
-	# 				dbarDeltaUp = zeroRedcostBeta - β
-	# 				if dbarDeltaUp > 0 && dbarDeltaUp < deltaInc
-	# 					deltaInc = dbarDeltaUp
-	# 				end
-	# 				dbarDeltaDn = zeroRedcostBeta - β
-	# 				if dbarDeltaDn < 0 && dbarDeltaDn > deltaDec
-	# 					deltaDec = dbarDeltaDn
-	# 				end
-	# 			end
-    #         end
-    #     end
-    # end
-    println("In getValidBetaInterval, dual_status(m): ", dual_status(m), " deltaDec=", deltaDec, " deltaInc=", deltaInc)
-    return deltaDec,deltaInc
+	return glb,lub
+	#deltaDec,deltaInc
 end
+
+
+# function getValidBetaIntervalTwo(m,t,tmax)
+# 	println("In getValidBetaInterval, dual_status(m): ", dual_status(m))
+# 	global _V
+#     dbar = m[:dbar]
+# 	x = m[:x]
+# 	xVec = value.(x)
+# 	g = m[:g]
+#
+# 	grb = unsafe_backend(m)
+# 	# the code below assumes that the Gurobi variable idx for g is 0, otherwise need to determine it
+# 	gIdx = Gurobi.column(grb,index(g))
+#
+# 	#report = lp_sensitivity_report(m,atol=1e-6)
+# 	#basis = Vector{Cint}(undef,num_constraints)
+# 	num_constr = MOI.get(m, Gurobi.ModelAttribute("NumConstrs")) # num_constraints(m,AffExpr)
+# 	num_vars = MOI.get(m, Gurobi.ModelAttribute("NumVars"))
+#
+# 	basisVec = Vector{Cint}(undef,num_constr)
+# 	GRBgetBasisHead(grb,basisVec)
+# 	basicDbar = Vector{Int64}(intersect(basisVec,keys(_GrbIdxToDbarIdx)))
+#
+# 	objfun = objective_function(m)
+# 	@assert(length(dbar)>0)
+# 	β = coefficient(objfun,first(values(dbar)))
+#
+# 	nonbasicVec = SortedSet(1:num_vars)
+# 	setdiff!(nonbasicVec,SortedSet(basisVec))
+#
+# #	idxes = Ref(NTuple{num_constr,Cint}(zeros(num_constr)))
+# #	vals = Ref(NTuple{num_constr,Cfloat}(zeros(num_constr)))
+# 	idxes = Vector{Cint}(undef,num_constr)
+# 	vals = Vector{Cdouble}(undef,num_constr)
+#
+#     deltaInc = Inf
+#     deltaDec = -Inf
+# 	#GC.enable(false)
+# 	#Vector{Cdouble}(undef,num_constr)
+# 	for colIdx in nonbasicVec
+# 		#GRBBinvColj(grb, colIdx, binvAj)
+# 		if __DEBUG >= DEBUG_LOW
+# 			println("computing beta interval for nonbasic col=",colIdx)
+# 		end
+# 		binvAj = mySvec(0,pointer_from_objref(idxes),pointer_from_objref(vals))
+# 		if __DEBUG >= DEBUG_LOW
+# 			println("after taking ptrs to objects")
+# 		end
+# 		res = ccall((:GRBBinvColj, "gurobi90"), Cint, (Ptr{GRBmodel}, Cint, Ref{mySvec}), grb, colIdx, Ref(binvAj))
+# 		if __DEBUG >= DEBUG_LOW
+# 			println("after ccall")
+# 		end
+# 		if res!=0
+# 			error("ccall exited with error: ", res)
+# 		end
+# 		indVec = Vector{Cint}(undef,binvAj.len)
+# 		copyto!(indVec,unsafe_wrap(Vector{Cint},binvAj.ind,binvAj.len))
+# 		if __DEBUG >= DEBUG_LOW
+# 			println("after copy index vector")
+# 		end
+# 		valVec = Vector{Cdouble}(undef,binvAj.len)
+# 		copyto!(valVec,unsafe_wrap(Vector{Cdouble},binvAj.val,binvAj.len))
+#
+# 		spBinvAj = SparseVector(num_constr, indVec, valVec)
+# 		#spBinvAj = SparseVector(binvAj.len, unsafe_pointer_to_objref(binvAj.ind), unsafe_pointer_to_objref(binvAj.val))
+# 		if __DEBUG >= DEBUG_LOW
+# 			println("after SparseVector creation, len: ", binvAj.len)
+# 			println(" size of indVec: ", length(indVec), " size of valVec: ", length(valVec))
+# 		end
+# 		zeroRedCostBeta = 0
+# 		@show spBinvAj[basicDbar[1]], spBinvAj[basicDbar[2]]
+# 		cdbarBinvAj = sum(spBinvAj[q] for q in basicDbar)
+# 		if __DEBUG >= DEBUG_LOW
+# 			println("after SparseVector sum")
+# 		end
+# 		if haskey(_GrbIdxToDbarIdx,colIdx) # if dbar variable
+# 			zeroRedcostBeta = spBinvAj[gIdx]/(1- cdbarBinvAj)  # beta that sets red cost to 0 for dbar var
+# 			if abs(1-cdbarBinvAj) <= SMALL_EPS
+# 				zeroRedcostBeta = typemax(Float64)
+# 			end
+# 		else
+# 			zeroRedCostBest = -spBinvAj[gIdx]/cdbarBinvAj # beta that sets red cost to 0 for other var
+# 			if abs(cdbarBinvAj) <= SMALL_EPS
+# 				zeroRedcostBeta = typemax(Float64)
+# 			end
+# 		end
+# 		if __DEBUG >= DEBUG_LOW
+# 			println("after zeroRedCostBeta calculation")
+# 		end
+# 		xDelta = zeroRedCostBeta - β
+# 		if xDelta >= 0 && xDelta < deltaInc
+# 			deltaInc = xDelta
+# 		end
+# 		if xDelta <= 0 && xDelta > deltaDec
+# 			deltaDec = xDelta
+# 		end
+# 	end
+#     println("In getValidBetaInterval, dual_status(m): ", dual_status(m), " deltaDec=", deltaDec, " deltaInc=", deltaInc)
+#     return deltaDec,deltaInc
+# end
 
 function addMostViolated!(m, n, x, t, tmax, β, alwaysAddDbarVars = false, idxOfLessThanCons=1)
 	#adds n most violated constraints
