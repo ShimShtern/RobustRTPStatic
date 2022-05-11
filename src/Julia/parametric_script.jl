@@ -149,14 +149,20 @@ global _V
 	obj_lb=objective_value(m)
 	betaLb = 0
 
+
+	budget_limit[idx]=dvrhs[idx]*(tmax[idx]-t[idx])
+	maxmin_twostage_subprob.addMissingDoseVolume!(m,t,tmax)
+	#=
+	#this takes too long!
 	budget_limit[idx]=dvrhs[idx]*(tmax[idx]-t[idx])
 	maxmin_twostage_subprob.addMissingDoseVolume!(m,t,tmax)
 	m, obj_lb_new = maxmin_twostage_subprob.AddBudgetConstraint!(m, Din, firstIndices, dvrhs, t ,tmax, μ, phi_u_n, phi_b_n, dists, budget_limit, L)
+	IndexStr=maxmin_twostage_subprob.getGlobals()
 	LBGNew = value(m[:g])
 	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(m, t, tmax)
 	violNumLb = devVecNew[idx]
 	@assert(budget_limit[idx]-devSumNew[idx]<1e-5)
-	betaLb = max(-dual(m[:Budget][idx]),betaLb)
+	betaLb = max(-dual(m[:Budget][idx]),betaLb)=#
 
 
 	W = dvrhs[idx]/violNumLb
@@ -174,20 +180,22 @@ global _V
 	global βUB
 	β, βLB, βUB = maxmin_twostage_subprob.betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
 
-
+	βLB = 72.22957647838726
+	βUB = 74.53033859716632
+	β = 72.57469079620412
 	set_optimizer_attribute(m, "NumericFocus", 3)
 	basicXIdxsPrev = []
 	basicDeltaIdxsPrev = []
 	for i in keys(dbar)
-		set_objective_coefficient(m, dbar[i], -β)
+		set_objective_coefficient(m, dbar[i], -βLB)
 	end
-	m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+	m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βLB,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
+	devVecOld = devVecNew
 	global mm
 	mm=m;
-	global βnew
-	βnew=β
-	global βprev=β
+	global βnew = βLB
+	global βprev= βLB
 	while devVecNew[idx] >= dvrhs[idx] || βnew==βprev
 		global mm
 		global βnew
@@ -201,11 +209,12 @@ global _V
 		end
 		mm, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βnew,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,mm)
 		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(mm,t,tmax) # function that returns deviation vector with dimension of OAR num
-		if βnew>βprev && devVecNew-devVecOld>1
+		if βnew>βprev && devVecOld-devVecNew>1
 			βnew=βprev
 			continue
 		end
-		basicXIdxs, basicDeltaIdxs = maxmin_twostage_subprob.getBasisXandDelta(mm)
+		SolNew=GetSol(mm)
+
 		deltaDec,deltaInc = maxmin_twostage_subprob.getValidBetaInterval(mm,t,tmax)
 		βLbB = βnew + deltaDec
 		βUbB = βnew + deltaInc #+ deltaInc
@@ -220,3 +229,59 @@ global _V
 		basicDeltaIdxsPrev = basicDeltaIdxs
 		devVecOld=devVecNew
 	end
+
+struct Solution2
+       basicXIdxs::Vector{Int64}
+       basicDeltaIdxs::Vector{Int64}
+	   XValue::Vector{Float64}
+	   DbarDict::Dict{Int64,Vector{AffExpr}}
+end
+
+function bNeighbors=CheckNeighbors(Sol1,Sol2,m)
+	global _N
+	global _D
+	global _V
+	#Sol.x
+	#Sol.baseX
+	#Sol.dbarVarDict
+	#Sol.basicDeltaIdxs
+	diffX1=setdiff(Sol1.basicXIdxs,Sol2.basicXIdxs)
+	diffX2=setdiff(Sol2.basicXIdxs,Sol1.basicXIdxs)
+	diffDelta1=setdiff(Sol1.basicDeltaIdxs,Sol2.basicDeltaIdxs)
+	diffDelta2=setdiff(Sol2.basicDeltaIdxs,Sol1.basicDeltaIdxs)
+
+	if (length(diffX1)+length(diffDelta1))>1) || (length(diffDelta2)+length(diffX2))>1)
+		bNeighbors=false
+	else #compute slacks
+		#slacks for dbar upper bound
+		SlackDbarIndexes1=[]
+		SlackDbarIndexes2=[]
+		for k=1:length(_V)
+			for i in intersect(Sol1.basicDeltaIdxs,_V[k])
+				if tbar[k]-t[k]-Sol1.dbarVarDict[i]>1e-10
+					append!(SlackDbarIndexes1,i)
+				end
+			end
+			for i in intersect(Sol2.basicDeltaIdxs,_V[k])
+				if tbar[k]-t[k]-Sol2.dbarVarDict[i]>1e-10
+					append!(SlackDbarIndexes2,i)
+				end
+			end
+		end
+		#slacks for homogeneity
+		all_variables(m)
+		cons = all_constraints(m, AffExpr, MOI.LessThan{Float64})
+		for con in cons
+		end
+	end
+end
+
+function GetSol(m)
+	basicXIdxs, basicDeltaIdxs = maxmin_twostage_subprob.getBasisXandDelta(mm)
+	dbarVarDict=m[:dbar]
+	XValue=value.(m[:x])
+	dbarValues=[[dbarVarDict[i],value(dbarVarDict[i])] for i in keys(dbarVarDict)]
+	dbarDict=Dict(keys(dbarVarDict) .=> dbarValues)
+	Sol = Solution2(basicXIdxs,collect(basicDeltaIdxs),XValue,dbarDict)
+	return Sol
+end

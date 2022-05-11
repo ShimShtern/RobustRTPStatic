@@ -20,7 +20,7 @@ const NO_DEBUG = 0
 const DEBUG_LOW = 1
 const DEBUG_MED = 2
 const DEBUG_HIGH = 3
-const __DEBUG = DEBUG_LOW #NO_DEBUG #NO_DEBUG  #true
+const __DEBUG = DEBUG_LOW#NO_DEBUG #NO_DEBUG  #true
 const __SOLVER_DEBUG = 0 #1
 
 #using Plots
@@ -74,6 +74,12 @@ export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computePr
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
 
+struct GlobalIndexes
+	 _V::Vector{Vector{Int}}
+      _N::Vector{Vector{Int}}
+      _dbarIdxToGrbIdx::Dict{Int64,Cint}
+	  _GrbIdxToDbarIdx::Dict{Cint,Int64}
+end
 
 function clearGlobalRunData()
 	_V = nothing
@@ -81,6 +87,15 @@ function clearGlobalRunData()
 	_dbarIdxToGrbIdx = nothing
 	_GrbIdxToDbarIdx = nothing
 	gc()
+end
+
+function getGlobals()
+	global _V
+	global _N
+	global _dbarIdxToGrbIdx
+	global _GrbIdxToDbarIdx
+	IndexStr=GlobalIndexes(deepcopy(_V),deepcopy(_N),deepcopy(_dbarIdxToGrbIdx),deepcopy(_GrbIdxToDbarIdx))
+	return IndexStr
 end
 
 function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_nom=0, xinit=[], alwaysCreateDeltaVars=false, idxOfGreaterThanCons=1)
@@ -757,16 +772,18 @@ function AddBudgetConstraint!(m, Din, firstIndices, dvrhs, t ,tmax, μ, phi_u_n,
 	@show length(dbarVarDict) length(_V[2])
 	K_indices=1:length(t)
 	K_indices=K_indices[tmax.>t]
+	temp_V=deepcopy(_V)
 	@constraint(m,Budget[k in K_indices],sum(dbarVarDict[i] for i in _V[k+1]) <= budget_limit[k])
 	solveModel!(m,firstIndices)
 	while obj_cur-obj_prev<0
 		m, htCn, homCn = robustCuttingPlaneAlg!(Din, firstIndices, t, tmax, [], 0.0, μ, phi_u_n, phi_b_n, dists, [0;0], 0, L, m, true)
 		dbarVarDict = m[:dbar]
 		for k in K_indices
-			for i in _V[k+1]
+			for i in setdiff(_V[k+1],temp_V[k+1])
 				set_normalized_coefficient(Budget[k],dbarVarDict[i],1.0)
 			end
 		end
+		temp_V=deepcopy(_V)
 		solveModel!(m,firstIndices)
 		obj_prev = obj_cur
 		obj_cur = objective_value(m)
