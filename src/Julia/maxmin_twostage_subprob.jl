@@ -912,9 +912,12 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 			end
 		end
 
-        deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
-        βUbB = min(β - deltaDec,βUb) #+ deltaInc
-        βLbB = max(β - deltaInc,βLb) #deltaDec # deltaDec should be negative
+        #deltaDec,deltaInc
+		βLbB, βUbB = getValidBetaInterval(m,t,tmax)
+		βUbB = min(βUbB,βUb)
+		βLbB = max(βLbB,βLb)
+        #βUbB = min(β - deltaDec,βUb) #+ deltaInc
+        #βLbB = max(β - deltaInc,βLb) #deltaDec # deltaDec should be negative
 
 		βprev = β
 		if devVec[idx] <= dvrhs[idx]      #βUb + BETA_EPS < βprev && any(devVec.>dvrhs)
