@@ -81,12 +81,20 @@ struct GlobalIndexes
 	  _GrbIdxToDbarIdx::Dict{Cint,Int64}
 end
 
+struct Solution
+	 	gvalue::Float64
+       basicXIdxs::Vector{Int64}
+       basicDeltaIdxs::Vector{Int64}
+	   XValue::Vector{Float64}
+	   DbarDict::Dict{Int64,Float64}
+end
+
 function clearGlobalRunData()
 	_V = nothing
 	_N = nothing
 	_dbarIdxToGrbIdx = nothing
 	_GrbIdxToDbarIdx = nothing
-	gc()
+	GC.gc()
 end
 
 function getGlobals()
@@ -96,6 +104,17 @@ function getGlobals()
 	global _GrbIdxToDbarIdx
 	IndexStr=GlobalIndexes(deepcopy(_V),deepcopy(_N),deepcopy(_dbarIdxToGrbIdx),deepcopy(_GrbIdxToDbarIdx))
 	return IndexStr
+end
+
+function GetSol(m)
+	basicXIdxs, basicDeltaIdxs = getBasisXandDelta(m)
+	dbarVarDict=m[:dbar]
+	XValue=value.(m[:x])
+	dbarValues=[value(dbarVarDict[i]) for i in keys(dbarVarDict)]
+	dbarDict=Dict(keys(dbarVarDict) .=> dbarValues)
+	gvalue=value(m[:g])
+	Sol = Solution(gvalue,basicXIdxs,collect(basicDeltaIdxs),XValue,dbarDict)
+	return Sol
 end
 
 function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_nom=0, xinit=[], alwaysCreateDeltaVars=false, idxOfGreaterThanCons=1)
@@ -606,7 +625,7 @@ function evaluateDevNumNoDbar(m, t, tmax)
 	for k = 1:length(t)
 	  	if tmax[k] > t[k]
 			dose = _D[[_V[k+1];_N[k+1]],:]*x
-			violSum[k] += sum(dose[i]-t[k] for i in 1:length(dose) if dose[i]>t[k])
+			violSum[k] += sum(dose[i]-t[k] for i in 1:length(dose) if dose[i]>t[k]+DBARNZTH)
 			violNum[k] += count(x->x > t[k] + DBARNZTH, dose)
 		end
 	end
@@ -615,25 +634,19 @@ end
 
 function evaluateDevNum(m, t, tmax)
 	dbar = m[:dbar]
-	@show dbar
     cntVec = zeros(length(_V)-1,1)
 	sumVec = zeros(length(_V)-1,1)
 	objFunc = objective_function(m)
     for k=2:length(_V)
-        if t[k-1]<tmax[k-1]
-            for i in _V[k]
-				if __DEBUG >= DEBUG_LOW
-					if i == first(_V[k])
-						println("***************** β from objective function: ", coefficient(objFunc,dbar[i]))
-					end
-					@assert(!is_fixed(dbar[i]))
-				end
-				#@show k, i, t, tmax
-                if (value(dbar[i]) > DBARNZTH)
-                    cntVec[k-1] += 1
-					sumVec[k-1] += value.dbar[i]
-                end
-            end
+        if t[k-1]<tmax[k-1] && length(_V[k])>0
+			values =[value.dbar[i] for i in _V[k]]
+			ind=find(values>DBARNZTH)
+			cntVec[k-1] = length(ind)
+			sumVec[k-1] = sum(values(ind))
+			if __DEBUG >= DEBUG_LOW
+				println("***************** β from objective function: ", coefficient(objFunc,dbar[_V[k][1]]))
+				@assert(!is_fixed(dbar[1]))
+			end
         end
     end
     return cntVec, sumVec
@@ -641,33 +654,36 @@ end
 
 
 function betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, dvlhsLB=[])
-	global βlb,βub
 	βlb = betaLb
 	βub = betaUb
 	dvlhs = zeros(length(t))
 	idx = findall(x->x>0,tmax-t)
 	idx = idx[1]
 	dvlhsUB = 0
-
+	ResultsArray=[]
 	while βub > BETA_EPS #any(dvrhs-dvlhs > BISECTION_GAP)
-		global βlb, βub
 
 		if !isempty(dvlhsLB)
 			W = (dvrhs[idx]-dvlhsUB)/(dvlhsLB-dvlhsUB)
-			println("betaLb=", βlb, " betaUb=", βub, " W=", W, " violNumLb=", dvlhsLB, " violNumUB=",dvlhsUB)
 			@assert(W>0)
+			if W>0.75
+				W=0.75
+			elseif W<0.25
+				W=0.25
+			end
 		else
 			W=0.5
 		end
-
-		βmid = βub*W+βlb*(1-W)
+			println("betaLb=", βlb, " betaUb=", βub, " W=", W, " violNumLb=", dvlhsLB, " violNumUB=",dvlhsUB)
+		βmid = βub*(1-W)+βlb*W
 		println("********* In betaBisection, current βmid=",βmid)
 		m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βmid,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 		#dbar = m[:dbar]
 
 		dvlhs, devSum = evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
-		@show dvlhs, dvrhs, devSum
-		if dvlhs[idx] + BISECTION_GAP > dvrhs[idx] && dvlhs[idx] <= dvrhs[idx]
+		push!(ResultsArray,[1,βmid,value(m[:g]),dvlhs[idx],devSum[idx],value.(m[:x])])
+		if dvlhs[idx] - BISECTION_GAP < dvrhs[idx] && dvlhs[idx] >= dvrhs[idx]
+			βlb = βmid
 			break
 		elseif devSum[idx]>dvrhs[idx]*(tmax[idx]-t[idx])
 			βlb = βmid
@@ -686,7 +702,7 @@ function betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ
 			end
 		end
 	end
-	return  βub*W+βlb*(1-W), βlb, βub
+	return  βlb, βub, ResultsArray
 end
 
 # getBasisXandDelta
@@ -709,24 +725,98 @@ function getBasisXandDelta(model)
 end
 
 # basesAdjacent - assume idx vectors are sorted
-function basesAdjacent(basicXIdxs1, basicDeltaIdxs1, basicXIdxs2, basicDeltaIdxs2)
-	if abs(length(basicXIdxs1)-length(basicXIdxs2)>1)
-		return false
-	elseif abs(length(basicDeltaIdxs1)-length(basicDeltaIdxs2)>1)
-		return false
-	elseif abs(length(basicXIdxs1)+length(basicDeltaIdxs1)-length(basicXIdxs2)-length(basicDeltaIdxs2)>1)
-		return false
+function basesAdjacent(Sol1,Sol2,m)
+	bNeighbors=true
+	diffX1=setdiff(Sol1.basicXIdxs,Sol2.basicXIdxs)
+	diffX2=setdiff(Sol2.basicXIdxs,Sol1.basicXIdxs)
+	diffDelta1=setdiff(Sol1.basicDeltaIdxs,Sol2.basicDeltaIdxs)
+	diffDelta2=setdiff(Sol2.basicDeltaIdxs,Sol1.basicDeltaIdxs)
+	total_basis_diff1=(length(diffX1)+length(diffDelta1))
+	total_basis_diff2=(length(diffDelta2)+length(diffX2))
+	if (total_basis_diff1>1 || total_basis_diff2>1)
+		bNeighbors=false
+		return bNeighbors
+	else #compute slacks
+		#slacks for dbar upper bound
+		SlackDbarIndexes1=[]
+		SlackDbarIndexes2=[]
+		for k=2:length(_V)
+			for i in intersect(Sol1.basicDeltaIdxs,_V[k])
+				if tbar[k-1]-t[k-1]-Sol1.DbarDict[i]>1e-10
+					append!(SlackDbarIndexes1,i)
+				end
+			end
+			for i in intersect(Sol2.basicDeltaIdxs,_V[k])
+				if tbar[k-1]-t[k-1]-Sol2.DbarDict[i]>1e-10
+					append!(SlackDbarIndexes2,i)
+				end
+			end
+		end
+		diffSlack1=setdiff(SlackDbarIndexes1,SlackDbarIndexes2)
+		diffSlack2=setdiff(SlackDbarIndexes2,SlackDbarIndexes1)
+		total_basis_diff1 += length(diffSlack1)
+		total_basis_diff2 += length(diffSlack2)
+		if (total_basis_diff1>1 || total_basis_diff2>1)
+			bNeighbors=false
+			return bNeighbors
+		end
+		#slacks for homogeneity
+		vars = all_variables(m)
+		cons = all_constraints(m, AffExpr, MOI.LessThan{Float64})
+		xx=m[:x]
+		dbar=m[:dbar]
+		dind=sort(collect(keys(dbar)))
+		inds1=indexin(Sol1.basicDeltaIdxs,dind)
+		inds2=indexin(Sol2.basicDeltaIdxs,dind)
+		gg=m[:g]
+		EPS_BASIS=1e-10
+		k=0
+		coef_x=zeros(length(xx))
+		for con in cons
+			k += 1
+			@show(k)
+			for i=1:length(xx)
+				coef_x[i]=normalized_coefficient(con,xx[i])
+			end
+			rhs = normalized_rhs(con)
+			value1=rhs-sum(coef_x[k]*Sol1.XValue[k] for k in Sol1.basicXIdxs)#-sum(b[inds1[k]]*Sol1.DbarDict[Sol1.basicDeltaIdxs[k]][2] for k in 1:length(inds1) )
+			value2=rhs-sum(coef_x[k]*Sol2.XValue[k] for k in Sol2.basicXIdxs)#-sum(b[inds2[k]]*Sol2.DbarDict[Sol2.basicDeltaIdxs[k]][2] for k in 1:length(inds2) )
+			if (value1>EPS_BASIS && value2<=EPS_BASIS)
+				total_basis_diff1 += 1
+			elseif (value1<=EPS_BASIS && value2>EPS_BASIS)
+				total_basis_diff2 += 1
+			end
+			if (total_basis_diff1>1.0) || (total_basis_diff2>1.0)
+				bNeighbors=false
+				break
+			end
+		end
 	end
-	xDiff = symdiff(basicXIdxs1,basicXIdxs2)
-	if length(xDiff) > 2
-		return false
+	cons = all_constraints(m, AffExpr, MOI.GreaterThan{Float64})
+	k=0
+	for con in cons
+		coef_g=normalized_coefficient(con,gg)
+		if coef_g!=0
+			k += 1
+			@show(k)
+			for i=1:length(xx)
+				coef_x[i]=normalized_coefficient(con,xx[i])
+			end
+			rhs = normalized_rhs(con)
+			value1=rhs-coef_g*Sol1.gvalue-sum(coef_x[k]*Sol1.XValue[k] for k in Sol1.basicXIdxs)#-sum(b[inds1[k]]*Sol1.DbarDict[Sol1.basicDeltaIdxs[k]][2] for k in 1:length(inds1) )
+			value2=rhs-coef_g*Sol2.gvalue-sum(coef_x[k]*Sol2.XValue[k] for k in Sol1.basicXIdxs)#-sum(b[inds1[k]]*Sol1.DbarDict[Sol1.basicDeltaIdxs[k]][2] for k in 1:length(inds1) )
+			if (-value1>EPS_BASIS && -value2<=EPS_BASIS)
+				total_basis_diff1 += 1
+			elseif (-value1<=EPS_BASIS && -value2>EPS_BASIS)
+				total_basis_diff2 += 1
+			end
+			if total_basis_diff1>1.0 || total_basis_diff2>1.0
+				bNeighbors=false
+				return bNeighbors
+			end
+		end
 	end
-	deltaDiff = symdiff(basicDeltaIdxs1,basicDeltaIdxs2)
-	if length(xDiff) + length(deltaDiff) > 2
-		return false
-	else
-		return true  # if size of symmetric difference is less than equal to two (adj here includes case of same basis)
-	end
+	return bNeighbors
 end
 
 function getMaxLessThanConsDual(m,t=nothing)
@@ -812,12 +902,11 @@ function addMissingDoseVolume!(m,t,tmax)
 	end
 end
 
-# parametricSolveDecreasing -
-function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L=1)
+function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L=1)
     global _V
     global _N
 
-
+	ResultsArray=[]
 	println("##################")
 	println("Compute upper bound for beta")
 	println("##################")
@@ -827,16 +916,15 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	g=m[:g]
 	set_objective_coefficient(m, g, scaling)
 	m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,t,t,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
-	initialG = value(m[:g])
-	initialX = value.(m[:x])
+	UBg = value(m[:g])
+	UBx = value.(m[:x])
 	betaUb = getMaxLessThanConsDual(m)
+	push!(ResultsArray,[0,betaUb,UBg,0,0,UBx])
 	m = nothing
-	_V = nothing
-	_N = nothing
-	GC.gc()
+	clearGlobalRunData()
 
 	idx = findall(x->x>0,tmax-t)
-	idx = idx[1]
+	idx = idx[1] #assumes only one organ has dose volume constraint
 	budget_limit = zeros(length(t))
 
 	println("##################")
@@ -847,105 +935,92 @@ function parametricSolveDecreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	g=m[:g]
 	set_objective_coefficient(m, g, scaling)
 	m, htCn, homCn = robustCuttingPlaneAlg!(Din, firstIndices, tmax, tmax, [], 0, μ, phi_u_n, phi_b_n, dists, [0;0], 0, L, m, false)
-	LBG = value(m[:g])
-	initialX = value.(m[:x])
-	devVec, devSum = evaluateDevNumNoDbar(m, t, tmax)
-	violNumLb = devVec[idx]
+	LBg = value(g)
+	LBx = value.(m[:x])
+	devNum, devSum = evaluateDevNumNoDbar(m, t, tmax)
+	violNumLb = devNum[idx]
 	obj_lb=objective_value(m)
 	betaLb = 0
-	if tmax[idx]<Inf
-		 # function that returns deviation vector with dimension of OAR num with no dev var in model
-		println(devVec)
+	addMissingDoseVolume!(m,t,tmax)
+	#computer tighter lower bound using budget constraint
+	if tmax[idx]<Inf && false #skipping this cause it takes too long
 		# dual multipliers do not give a LB in this case
 		budget_limit[idx]=dvrhs[idx]*(tmax[idx]-t[idx])
 		if devSum[idx]>budget_limit[idx]
-			addMissingDoseVolume!(m,t,tmax)
 			m, obj_lb_new = AddBudgetConstraint!(m, Din, firstIndices, dvrhs, t ,tmax, μ, phi_u_n, phi_b_n, dists, budget_limit, L)
 			LBGNew = value(m[:g])
-			devVecNew, devSumNew = evaluateDevNumNoDbar(m, t, tmax)
-			violNumLb = devVecNew[idx]
-			@assert(budget_limit[idx]-devSumNew[idx]<1e-5)
-			betaLb = (LBG-LBGNew)*scaling/(devSum[idx]-budget_limit[idx])
+			LBx = value.(m[:x])
+			devNum, devSum = evaluateDevNumNoDbar(m, t, tmax)
+			violNumLb = devNum[idx]
+			@assert(budget_limit[idx]-devSum[idx]<1e-5)
+			betaLb = (LBg-LBGNew)*scaling/(devSum[idx]-budget_limit[idx])
+			LBg=LBGNew
 			betaLb = max(-dual(m[:Budget][idx]),betaLb)
-			#=set_normalized_rhs(m[:Budget][idx],0)
-			old_obj=obj_lb_new
-			new_obj=obj_lb_new-1
-			while new_obj<old_obj
-				dbar=m[:dbar]
-				for i in keys(dbar)
-					set_normalized_coefficient(m[:Budget][idx],dbar[i],1)
-				end
-				solveModel!(m,firstIndices)
-				m, htCn, homCn = robustCuttingPlaneAlg!(Din, firstIndices, t, tmax, [], 0, μ, phi_u_n, phi_b_n, dists, [0;0], 0, L, m, true)
-				old_obj = new_obj
-				new_obj = objective_value(m)
-			end
-			UBG = value(m[:g])
-			initialX = value.(m[:x])
-			betaUB = -dual(m[:Budget][idx])
-			set_normalized_rhs(m[:Budget][idx],budget_limit[idx])=#
-			W = dvrhs[idx]/violNumLb
-			println("betaLb=", betaLb, " betaUb=", betaUb," violNumLb=", violNumLb)
-			beta=(1-W)*betaLb+W*betaUb
 			delete(m,m[:Budget][idx])
-			dbar=m[:dbar]
-			for i in keys(dbar)
-				set_objective_coefficient(m, dbar[i], -beta)
-			end
 		end
-	else
-		W = dvrhs[idx]/violNumLb # (violNumLb-dvrhs[idx])/violNumLb
-		println("betaLb=", betaLb, " betaUb=", betaUb," violNumLb=", violNumLb)
-		m = @time initModel(Din,firstIndices,t,tmax,[],(1-W)*betaLb+W*betaUb, phi_u_n, [0;0], 0, initialX)  # Improve here later by warm starting with the solution of previously solved constrained model
 	end
+	println("betaLb=", betaLb, " betaUb=", betaUb," violNumLb=", violNumLb)
+	push!(ResultsArray,[0,betaLb,LBg,devNum[idx],devSum[idx],LBx])
 
-	#@assert(W>0)
-
-	#unfixDeltaVariables!(m,t,tmax)
-	β,  βLb, βUb = betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
-	println("************** after betaBisection, β = ", β)
-	set_optimizer_attribute(m, "NumericFocus", 3)
-    βprev = β
-    βvec = []
-    gVec = []
-	dvMat = []
-	basicXIdxsPrev = []
-	basicDeltaIdxsPrev = []
+	##
+	set_optimizer_attribute(m,"Method",4)
+	βLb, βUb, ResultsArrayTemp = betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
+	append!(ResultsArray,ResultsArrayTemp)
+	println("************** after betaBisection, β = ", βLb)
+	dbar=m[:dbar]
+	for i in keys(dbar)
+		set_objective_coefficient(m, dbar[i], -βLb)
+	end
+	set_optimizer_attribute(m,"Method",4)
+	m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βLb,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
+	dbar = m[:dbar]
+	new_num_dbar=length(dbar)
+	NumConstOld = num_constraints(m,AffExpr, MOI.LessThan{Float64})+num_constraints(m,AffExpr, MOI.GreaterThan{Float64})
+	devVecOld = devVecNew
+	old_num_dbar = new_num_dbar
+	βnew = βLb
+	βprev= βLb
     iter = 0
-    while (β>βLbB)
+	while devVecNew[idx] >= dvrhs[idx] || βnew==βprev
 		iter+=1
-        m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
-		devVec, devSum = evaluateDevNumNoDbarvalue(m,t,tmax) # function that returns deviation vector with dimension of OAR num
-        append!(gVec,value(m[:g]))
-        append!(βvec,value(β))
-		append!(dvMat, devVec[idx])
-		println("In parametricSolveDecreasing! loop iter =", iter, " beta= ",β, "  g=", last(gVec))
-		@show β, devVec, dvrhs, devSum
-		if β > βprev && devVec[idx] == dvrhs[idx]
-			basicXIdxs, basicDeltaIdxs = getBasisXandDelta(m)
-			if basesAdjacent(basicXIdxs, basicDeltaIdxs, basicXIdxsPrev, basicDeltaIdxsPrev)
-				println("found adjacent basis, terminating with β=", β)
-				break
+        BETA_EPS = 0
+		dbar = m[:dbar]
+		for i in keys(dbar)
+			set_objective_coefficient(m, dbar[i], -βnew)
+		end
+		m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βnew,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		dbar = m[:dbar]
+		new_num_dbar=length(dbar)
+		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
+		NumConstNew=num_constraints(m,AffExpr, MOI.LessThan{Float64})+num_constraints(m,AffExpr, MOI.GreaterThan{Float64})
+		SolNew=GetSol(m)
+		if (new_num_dbar>old_num_dbar || NumConstNew>NumConstOld)
+			if (βnew>βprev && maximum(devVecOld-devVecNew)>1) || !basesAdjacent(Sol1,Sol2,m)
+				βnew=βprev
+				continue
 			end
 		end
+		if βnew!=βprev
+			push!(ResultsArray,[2,βnew,value(m[:g]),devVecNew[idx], devSumNew[idx],value.(m[:x])])
+		end
 
-        deltaDec,deltaInc = getValidBetaInterval(m,t,tmax)
-        βUbB = min(β - deltaDec,βUb) #+ deltaInc
-        βLbB = max(β - deltaInc,βLb) #deltaDec # deltaDec should be negative
-
-		βprev = β
-		if devVec[idx] <= dvrhs[idx]      #βUb + BETA_EPS < βprev && any(devVec.>dvrhs)
-			# if generated cuts and lower bound for validity of basis exceeds the previous beta
-			β = βLbB - BETA_EPS
-        else
-			#betaLb = β
-            println("******* parametricSolveDecrease after DVC violated, iter = ", iter, " beta = ",β, " reverting to larger beta = ", βUb + BETA_EPS)
-			β = βUbB + BETA_EPS
-			basicXIdxsPrev, basicDeltaIdxsPrev = getBasisXandDelta(m)
-        end
-    end
-	@show devSum
-    return m,βvec,gVec,dvMat
+		β1,β2 = maxmin_twostage_subprob.getValidBetaInterval(m,t,tmax)
+		βLbB = -β2
+		βUbB = -β1
+		βprev = βnew
+		if devVecNew[idx] <= dvrhs[idx]
+			βnew=max(βLbB-BETA_EPS,βLb)
+			βUB=βprev
+		else
+			βnew=min(βUbB+BETA_EPS,βUb)
+		end
+		devVecOld=devVecNew
+		SolOld=SolNew;
+		NumConstOld=NumConstNew
+		old_num_dbar=new_num_dbar
+	end
+    return m,βnew,ResultsArray
 end
 
 
