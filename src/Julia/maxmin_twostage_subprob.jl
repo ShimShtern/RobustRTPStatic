@@ -23,7 +23,6 @@ const DEBUG_HIGH = 3
 const __DEBUG = DEBUG_LOW#NO_DEBUG #NO_DEBUG  #true
 const __SOLVER_DEBUG = 0 #1
 
-#using Plots
 const INITXNORM = 100
 const VIOL_EPS = 1e-2 #allowed violation for homogeneity constraints
 const INFEAS_TOL = 1e-5
@@ -40,7 +39,7 @@ const MAX_LAZY_CON_IT = 1e6		#maximum number of iterations done for adding OAR c
 const LAZYCONS_TIGHT_TH = 0.01
 const MAX_VIOL_RATIO_TH = 0.01
 
-const MAX_V_CONS = 10 #can be set to infinity
+const MAX_V_CONS = 10 #can be set to infinity - how many pairs to add
 const MAX_VIOL_EPS = 1e-2 #oar constraint violation allowed NOT USED
 const MAX_VIOL_EPS_INIT = 10  #initial oar constraint violation allowed in phase I / to generate homogeneity constraints
 
@@ -1083,26 +1082,23 @@ function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, ph
             newObj=JuMP.objective_value(model)
             x = value.(xVar)
 			#set_optimizer_attribute(model,"CPX_PARAM_LPMETHOD",1)
-            if ( (prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage == 1 ) || num_const_added_oar == 0  #abs(prev_viol_oar-max_viol_oar)/prev_viol_oar < MAX_VIOL_RATIO_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage==1)   #&& (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
+			prev_viol_oar = max_viol_oar
+            max_viol_oar, num_const_added_oar = addMostViolated!(model, LAZY_CONS_PERORGAN_NUM_PER_ITER, x, t, tmax,β,alwaysCreateDeltaVars)
+            if __DEBUG >= DEBUG_LOW
+                println("max_viol_oar= ", max_viol_oar, "  num_const_added_oar =", num_const_added_oar)
+            end
+			sum_num_const_added_oar += num_const_added_oar
+            if __DEBUG >= DEBUG_LOW
+                @show max_viol_oar, num_const_added_oar
+            end
+
+			if ( (prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage == 1 ) || num_const_added_oar == 0  #abs(prev_viol_oar-max_viol_oar)/prev_viol_oar < MAX_VIOL_RATIO_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage==1)   #&& (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
                 println("Terminating lazy cons loop at It= ", it, "  Infeas reduction: ", (prev_viol_oar-max_viol_oar)/prev_viol_oar," Obj red %: ", (prevObj-newObj)/prevObj, " phase: ", stage, #" last solve simplex iter: ", simplex_iterations(model),
 				" barrier iter: ", barrier_iterations(model))
                 flush(stdout)
                 break
             end
 
-            prev_viol_oar = max_viol_oar
-            max_viol_oar, num_const_added_oar = addMostViolated!(model, LAZY_CONS_PERORGAN_NUM_PER_ITER, x, t, tmax,β,alwaysCreateDeltaVars)
-            if __DEBUG >= DEBUG_LOW
-                println("max_viol_oar= ", max_viol_oar, "  num_const_added_oar =", num_const_added_oar)
-            end
-            #if num_const_added_oar == 0#max_viol_oar <= MAX_VIOL_EPS
-            #    println("Terminating lazy cons loop at It= ", it)
-            #    break
-            #end
-            sum_num_const_added_oar += num_const_added_oar
-            if __DEBUG >= DEBUG_LOW
-                @show max_viol_oar, num_const_added_oar
-            end
             prevObj = newObj
         end
 #        println("Total of ", sum_num_const_added_oar, " lazy constraints added so far")

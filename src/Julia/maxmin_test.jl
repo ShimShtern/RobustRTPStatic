@@ -8,11 +8,11 @@ using JuMP
 using SparseArrays
 using FileIO, JLD2
 using Printf
-bLOAD_FROM_FILE=false
-bLOAD_FROM_FILE_gamma=false
-bLOAD_FROM_FILE_projection = false
-bSAVE_FILES = true
-bSAVE_DISTORPROJ_FILES = true
+bLOAD_FROM_FILE=true
+bLOAD_FROM_FILE_gamma=true
+bLOAD_FROM_FILE_projection = true
+bSAVE_FILES = false
+bSAVE_DISTORPROJ_FILES = false
 
 #file = matopen("liverEx2.mat")
 #ρ = [0.99; 1; 1]
@@ -164,7 +164,7 @@ else
     end
 end
 
-time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg!(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,λ, ϕ, 200)
+time_prof=@elapsed model, htCn, homCn=maxmin_twostage_subprob.robustCuttingPlaneAlg!(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,λ, ϕ, 200)
 
 @show time_prof
 
