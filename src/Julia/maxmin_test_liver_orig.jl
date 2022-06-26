@@ -19,8 +19,8 @@ file = matopen("liverEx_2.mat")
 const ρ = [1; 1; 1]
 
 # In the Liver data the 1st OAR is liver, 2nd OAR is heart
-const t = [60.0 ; 40.0; 60]
-#const tmax = [60.0 ; 50.0; 60]
+#const t = [60.0 ; 40.0; 60]
+const tmax = [60.0 ; 50.0; 60]
 
 const t = tmax
 
@@ -35,11 +35,12 @@ const t = tmax
 
 #λ=0 #unused reg param
 β = 0.1
-μ = 1.15 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
+μ = 1.55 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1
-gamma_const=0.051
-
-gamma_func(x) = 1*(x>0) #(x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
+gamma_const=1
+max_γ=0.05+gamma_const
+max_dist=10
+gamma_func(x) = (x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
 γ = read(file, "neighbors_Mat")
 ϕ = read(file, "omf_Vec")
 

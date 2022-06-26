@@ -20,7 +20,7 @@ const NO_DEBUG = 0
 const DEBUG_LOW = 1
 const DEBUG_MED = 2
 const DEBUG_HIGH = 3
-const __DEBUG = DEBUG_LOW#NO_DEBUG #NO_DEBUG  #true
+const __DEBUG = NO_DEBUG #NO_DEBUG  #true   #DEBUG_LOW#
 const __SOLVER_DEBUG = 0 #1
 
 #using Plots
@@ -33,7 +33,7 @@ const BIG_OBJ = 1e8
 const UNIFORM_GAMMA = true
 
 const LAZY_CONS_PERORGAN_TH = 5e4 # 5e3 #1e5 #5e4
-const LAZY_CONS_PERORGAN_INIT_NUM = 400		#maximum number of constraints for OAR added in model initialization
+const LAZY_CONS_PERORGAN_INIT_NUM = 400000		#maximum number of constraints for OAR added in model initialization
 const LAZY_CONS_PERORGAN_NUM_PER_ITER = 200 #maximum number of constraints for OAR added in each iteration
 const MAX_LAZY_CON_IT = 1e6		#maximum number of iterations done for adding OAR constraints
 
