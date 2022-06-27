@@ -34,12 +34,13 @@ const t = tmax
 
 
 #λ=0 #unused reg param
-β = 0.1
-μ = 1.55 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
+β = 0.01
+μ = 100 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1
 gamma_const=1
 max_γ=0.05+gamma_const
 max_dist=10
+α = [0.0138749; 0.0218827; -0.000604924]
 gamma_func(x) = (x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
 γ = read(file, "neighbors_Mat")
 ϕ = read(file, "omf_Vec")
