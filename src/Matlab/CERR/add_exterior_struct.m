@@ -1,8 +1,7 @@
 
 global planC
-%fileN = 'C:\Users\Shim\Dropbox (MIT)\technion\research\Robust Radiotherapy\data\CERR\MergedPTCT_structs_20210428.mat';
-FileName='Patient1_Visit1_Merged_ptv_brain';
-FileDir='C:\Users\Shim\Dropbox (MIT)\technion\research\Robust Radio Therapy (All)\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient 1\';
+FileName='Patient1_Visit2_Merged_PTV_0131';
+FileDir='C:\Users\shimrit\Dropbox (MIT)\technion\research\Robust Radio Therapy (All)\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient1\';
 fileFullName = [FileDir,FileName,'.mat'];
 planC = loadPlanC(fileFullName);
 planC = updatePlanFields(planC);
