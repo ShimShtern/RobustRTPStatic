@@ -21,9 +21,7 @@ const ρ = [1; 1; 1]
 # In the Liver data the 1st OAR is liver, 2nd OAR is heart
 #const t = [60.0 ; 40.0; 60]
 const tmax = [60.0 ; 50.0; 60]
-
 const t = tmax
-
 #Heart
 #Max Dose (Gy,0.03 cc) ≤ 50Gy ≤ 52 Gy > 52 Gy
 #Mean Dose (Gy) ≤ 30 Gy ≤ 31 Gy > 31 Gy
@@ -34,8 +32,8 @@ const t = tmax
 
 
 #λ=0 #unused reg param
-β = 0.01
-μ = 100 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
+β = 0#0.01
+μ = 1.2 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1
 gamma_const=1
 max_γ=0.05+gamma_const
