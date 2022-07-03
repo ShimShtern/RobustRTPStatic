@@ -77,24 +77,24 @@ export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computePr
 struct GlobalIndexes
 	 _V::Vector{Vector{Int}}
       _N::Vector{Vector{Int}}
-      _dbarIdxToGrbIdx::Dict{Int64,Cint}
-	  _GrbIdxToDbarIdx::Dict{Cint,Int64}
+      #_dbarIdxToGrbIdx::Dict{Int64,Cint}
+	  #_GrbIdxToDbarIdx::Dict{Cint,Int64}
 end
 
 function clearGlobalRunData()
 	_V = nothing
 	_N = nothing
-	_dbarIdxToGrbIdx = nothing
-	_GrbIdxToDbarIdx = nothing
+#	_dbarIdxToGrbIdx = nothing
+#	_GrbIdxToDbarIdx = nothing
 	gc()
 end
 
 function getGlobals()
 	global _V
 	global _N
-	global _dbarIdxToGrbIdx
-	global _GrbIdxToDbarIdx
-	IndexStr=GlobalIndexes(deepcopy(_V),deepcopy(_N),deepcopy(_dbarIdxToGrbIdx),deepcopy(_GrbIdxToDbarIdx))
+	#global _dbarIdxToGrbIdx
+	#global _GrbIdxToDbarIdx
+	IndexStr=GlobalIndexes(deepcopy(_V),deepcopy(_N))#,deepcopy(_dbarIdxToGrbIdx),deepcopy(_GrbIdxToDbarIdx))
 	return IndexStr
 end
 
@@ -109,8 +109,8 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
         println("Init Model Start......................")
 		@show t,tmax,β
     end
-	global _dbarIdxToGrbIdx = Dict{Int64,Cint}()
-	global _GrbIdxToDbarIdx = Dict{Cint,Int64}()
+#	global _dbarIdxToGrbIdx = Dict{Int64,Cint}()
+#	global _GrbIdxToDbarIdx = Dict{Cint,Int64}()
     #m = Model(() ->SCS.Optimizer())
 	#m = Model(()-> CPLEX.Optimizer())
 	#m = Model(() -> Gurobi.Optimizer(GRB_ENV))
@@ -167,8 +167,8 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
 					else
                     	dbar[i] = @variable(m,lower_bound=0,upper_bound=tmax[k]-t[k])
 						grbIdx = Gurobi.column(grb,index(dbar[i]))
-						_dbarIdxToGrbIdx[i] = grbIdx
-						_GrbIdxToDbarIdx[grbIdx] = i
+						#_dbarIdxToGrbIdx[i] = grbIdx
+						#_GrbIdxToDbarIdx[grbIdx] = i
 					end
                 end
                 @constraint(m,[i in _V[k+1] ], t[k]-sum( _D[i,j]*x[j] for j in _D[i,:].nzind) + dbar[i] >= 0)
@@ -296,13 +296,6 @@ function solveModel!(m,firstIndices)
     #printDoseVolume(m,doseVol)
     return m
 end
-
-# mutable struct mySvec
-# 	len :: Cint
-# 	ind :: Ptr{Cint}
-# 	val :: Ptr{Cdouble}
-# end
-
 
 function getValidBetaInterval(m, t, tmax)
 	println("In getValidBetaInterval..., dual_status(m): ", dual_status(m))
@@ -482,8 +475,8 @@ function addMostViolated!(m, n, x, t, tmax, β, alwaysAddDbarVars = false, idxOf
 					dbarIdx = indicesToAdd[l]
 					dbar[dbarIdx] = @variable(m,lower_bound=0, upper_bound=tmax[k]-t[k],start = viol[violIdxs[l]])
 					grbIdx = Gurobi.column(grb,index(dbar[dbarIdx]))
-					_dbarIdxToGrbIdx[dbarIdx] = grbIdx
-					_GrbIdxToDbarIdx[grbIdx] = dbarIdx
+					#_dbarIdxToGrbIdx[dbarIdx] = grbIdx
+					#_GrbIdxToDbarIdx[grbIdx] = dbarIdx
 				end
 				@assert(length(_V[k+1])==length(dbar))
 			end
@@ -519,28 +512,32 @@ end
 
 
 # addNominalHomogenConstr!
-function addNominalHomogenConstr!(m,d,x,ϕ,μ,L=1)
+# In the nominal case compare with g instead of going through all pairs
+function addNominalHomogenConstr!(m,d,ϕ,μ,L=1)
     global _D
     ptvN = length(d)
-
-    g = m[:g]
-    x = m[:x]
+	g = m[:g]
     v  = ϕ.*d .- μ*value(g)
     v = max.(v,0)
     idxs=partialsortperm(vec(v),1:min(L,ptvN),rev=true)
     vv = v[idxs]
     vIdxs = findall(>(VIOL_EPS),vv)
-    idxs = idxs[vIdxs]
-    vv = v[vIdxs]
-    @constraint(m, [i in idxs] , μ*g-ϕ[i]*sum(_D[i,j]*x[j] for j in _D[i,:].nzind) >= 0)
-    numConstr = length(idxs)
-    if __DEBUG >= DEBUG_LOW
-        println("In addNominalHomogenConstr!.. numConstr: ", numConstr)
-    end
-    maxViol = 0
-    if !isempty(vv)
-        maxViol = first(vv)
-    end
+	maxViol = 0
+	numConstr = 0
+	x = m[:x]
+	if !isempty(vIdxs)
+    	idxs = idxs[vIdxs]
+		@show idxs, vIdxs, size(_D), length(d)
+    	vv = vv[vIdxs]
+    	@constraint(m, [i in idxs] ,μ*g-ϕ[i]*sum(_D[i,j]*x[j] for j in _D[i,:].nzind) >= 0)
+    	numConstr = length(idxs)
+    	if __DEBUG >= DEBUG_LOW
+        	println("In addNominalHomogenConstr!.. numConstr: ", numConstr)
+    	end
+		maxViol = first(vv)
+	end
+#    if !isempty(vv)
+#    end
     return maxViol, numConstr #v[last(idxs)]
 end
 
@@ -970,8 +967,8 @@ function unfixDeltaVariables!(m,t,tmax)
 end
 
 function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, phi_b_n, dists, λ, ϕ, L=1, m=nothing, alwaysCreateDeltaVars=false)
-	#what is the parameter L?
-    δ=maximum(phi_b_n-phi_u_n)./2
+	#what is the parameter L?   # number of cuts
+    δ=maximum(phi_b_n-phi_u_n)./2        # what is this value of δ
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
     ptvN = firstIndices[1]-1
     model = m
