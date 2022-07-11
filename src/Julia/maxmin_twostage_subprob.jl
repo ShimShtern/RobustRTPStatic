@@ -40,6 +40,7 @@ const MAX_LAZY_CON_IT = 1e6		#maximum number of iterations done for adding OAR c
 const LAZYCONS_TIGHT_TH = 0.01
 const MAX_VIOL_RATIO_TH = 0.01
 
+
 const MAX_V_CONS = 10 #can be set to infinity
 const MAX_VIOL_EPS = 1e-2 #oar constraint violation allowed NOT USED
 const MAX_VIOL_EPS_INIT = 10  #initial oar constraint violation allowed in phase I / to generate homogeneity constraints
@@ -526,8 +527,13 @@ function addNominalHomogenConstr!(m,d,ϕ,μ,L=1)
 	numConstr = 0
 	x = m[:x]
 	if !isempty(vIdxs)
+		if L < length(vIdxs)
+			vIdxs = vIdxs[1:L;]
+		end
     	idxs = idxs[vIdxs]
-		@show idxs, vIdxs, size(_D), length(d)
+		if __DEBUG >= DEBUG_LOW
+			@show idxs, vIdxs, size(_D), length(d)
+		end
     	vv = vv[vIdxs]
     	@constraint(m, [i in idxs] ,μ*g-ϕ[i]*sum(_D[i,j]*x[j] for j in _D[i,:].nzind) >= 0)
     	numConstr = length(idxs)

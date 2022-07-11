@@ -13,6 +13,9 @@ const bLOAD_FROM_FILE_projection = false
 const bSAVE_FILES = true
 const bSAVE_DISTORPROJ_FILES = false
 
+const MAX_HOMOGEN_CONSTR = 250
+
+
 file = matopen("liverEx_2.mat")
 #const ρ = [0.7; 1; 1] #0.5]# 1]
 #const ρ = [1; 0.5; 1] #0.5]# 1]
@@ -30,10 +33,9 @@ const t = tmax
 #Mean Dose(Gy) ≤ 21 Gy ≤ 25 Gy > 25 Gy
 #V30 ≤ 30% ≤ 40% > 40%
 
-
 #λ=0 #unused reg param
 β = 0#0.01
-μ = 1.2 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
+μ = 1.45 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1
 gamma_const=1
 max_γ=0.05+gamma_const
@@ -102,7 +104,7 @@ if sum(tmax-t) == 0 || sum(dvrhs) == 0
 end
 inD = []
 println(firstIndices)
-@assert(size(γ, 1) == firstIndices[1] - 1)#need to make sure these are the same
+@assert(size(γ, 1) == firstIndices[1] - 1) #need to make sure these are the same
 #m = maxmin_twostage_subprob.initModel(D,firstIndices,t,dvrhs,β)
 #m = maxmin_twostage_subprob.solveModel!(m)
 #for
@@ -143,7 +145,7 @@ dvrhs = []
 
 #time_prof = @elapsed m, htCn, homCn = maxmin_twostage_subprob.robustCuttingPlaneAlg!(D,firstIndices,t,tmax,[],β,μ,phi_u_n,phi_b_n,dists,[0;0],0,200)
 
-time_prof=@elapsed model, oarCt, homCt =maxmin_twostage_subprob.robustCuttingPlaneAlg!(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,[0;0],0,200)
+time_prof=@elapsed model, oarCt, homCt =maxmin_twostage_subprob.robustCuttingPlaneAlg!(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,[0;0],0,MAX_HOMOGEN_CONSTR)
 #time_prof=@elapsed model = maxmin_twostage_subprob.parametricSolveIncreasing(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
 #time_prof=@elapsed model,βvec,objValVec,dvCntMat = maxmin_twostage_subprob.parametricSolveDecreasing(D,firstIndices,t,tmax,dvrhs,μ,phi_u_n, phi_b_n, dists,200)
 βvec = [β]
