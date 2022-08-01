@@ -15,11 +15,11 @@ bSAVE_FILES = true
 bSAVE_DISTORPROJ_FILES = true
 
 #file = matopen("liverEx2.mat")
-ρ = [0.99; 1; 1]
-#ρ = [1; 1; 1]
+#ρ = [0.99; 1; 1]
+ρ = [1; 1; 1]
 #t = [40.0 ; 40.0]
-#t = [62; 54; 100]
-t=[60; 54; 100]
+t = [62; 54; 100]
+#t=[60; 54; 100]
 tmax = [62; 54; 100]
 #β = 0.01
 β = 0 #1e-8 # coeficient do deal with dose volume constraint
@@ -47,11 +47,9 @@ D = []
 firstIndices = []
 dvrhs = []
 
-#D_file="D_Liv_formatted.jld2"
-D_file="Patient4_Visit1_D_formatted.jld2"
 if bLOAD_FROM_FILE
-    D = FileIO.load(D_file, "D")
-    firstIndices, dvrhs = FileIO.load(D_file, "firstIndices", "dvrhs")
+    D = FileIO.load("D_formatted.jld2", "D")
+    firstIndices, dvrhs = FileIO.load("D_formatted.jld2", "firstIndices", "dvrhs")
 else
     file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
     inD = read(file, "Dij")
@@ -117,7 +115,7 @@ else
     end
     if bSAVE_FILES
         FileIO.save(
-            "Patient4_D_formatted.jld2",
+            "D_formatted.jld2",
             "D",
             D,
             "firstIndices",
@@ -145,10 +143,8 @@ println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = "
 phi_u_n=[]
 phi_b_n=[]
 dists=[]
-#file_name_gamma=@sprintf("./RS_Dists/Gamma_dist_new_%1.3f.jld2",gamma_const)
-file_name_gamma=@sprintf("./RS_Dists/Patient4_Gamma_dist_new_%1.3f.jld2",gamma_const)
-#file_name_proj=@sprintf("./Projections/Projection_new_%1.3f_%1.3f.jld2",gamma_const,δ)
-file_name_proj=@sprintf("./Projections/Patient4_Projection_new_%1.3f_%1.3f.jld2",gamma_const,δ)
+file_name_gamma=@sprintf("./RS_Dists/Gamma_dist_new_%1.3f.jld2",gamma_const)
+file_name_proj=@sprintf("./Projections/Projection_new_%1.3f_%1.3f.jld2",gamma_const,δ)
 if bLOAD_FROM_FILE_gamma
     dists = FileIO.load(file_name_gamma,"dists")
 else

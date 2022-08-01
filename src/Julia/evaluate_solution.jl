@@ -14,12 +14,6 @@ function CalculateMinHom(d,firstIndices,dists,phi_u_n=[],phi_b_n=[])
     V = 1:firstIndices[1]-1   # PTV
     #lastRow = firstIndices[1]-1
     ptvn = length(V)
-    if isempty(phi_u_n)  # if not given then initialize phi to unity to solve nominal problem
-        phi_u_n = ones(ptvn,1)
-        phi_b_n = ones(ptvn,1)
-    end
-
-
     μ=1
     for i=1:ptvn-1
         for k=1:2
@@ -40,18 +34,12 @@ function CalculateMinHom(d,firstIndices,dists,phi_u_n=[],phi_b_n=[])
     return μ
 end
 
-function EvaluateSolution(d,firstIndices, γ, gamma_const, δ,phi_under,phi_bar, bLOAD_FROM_FILE=false)
-    ptvN, nn = size(γ)
-    phi_u_n=[]
-    phi_b_n=[]
-    dists=[]
-    file_name=@sprintf("Projection_Gamma_%1.3f_%1.3f.jld2",gamma_const,δ)
-    if bLOAD_FROM_FILE
-        phi_u_n, phi_b_n, dists = FileIO.load(file_name,"phi_u_n","phi_b_n","dists")
-    else
-        phi_u_n, phi_b_n, dists = maxmin_twostage_subprob.computeProjections(γ, gamma_const, phi_under, phi_bar)
-        FileIO.save(file_name,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n,"dists",dists)
+function EvaluateSolution(d,firstIndices, dists,phi_u_n,phi_b_n)
+    if isempty(phi_u_n)  # if not given then initialize phi to unity to solve nominal problem
+        phi_u_n = ones(ptvn,1)
+        phi_b_n = ones(ptvn,1)
     end
+    ptvN, nn = size(dists)
     μ=CalculateMinHom(d,firstIndices,dists,phi_u_n,phi_b_n)
     g=minimum(phi_u_n.*d[1:firstIndices[1]-1]) #CalculateMinBioDose
     return g, μ

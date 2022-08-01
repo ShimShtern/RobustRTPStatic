@@ -129,7 +129,7 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
 	end
     set_optimizer_attribute(m, "OptimalityTol", OPTIMALITY_TOL)
     set_optimizer_attribute(m, "FeasibilityTol", FEASIBILITY_TOL)
-	#set_optimizer_attribute(m, "NumericFocus", 3)
+	set_optimizer_attribute(m, "NumericFocus", 3)
 #	set_optimizer_attribute(m, "Quad", 1)
 #	set_optimizer_attribute(m, "MarkowitzTol", 0.05)
 

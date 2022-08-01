@@ -1,3 +1,5 @@
 
 *.mat
 *.jld2
+*.xlsx
+*.csv

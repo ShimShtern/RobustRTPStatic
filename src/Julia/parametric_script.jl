@@ -49,7 +49,7 @@ if bLOAD_FROM_FILE
     D = FileIO.load(D_file, "D")
     firstIndices, dvrhs = FileIO.load(D_file, "firstIndices", "dvrhs")
 else
-    #file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
+    file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
     inD = read(file, "Dij")
     V = read(file, "V")
     close(file)
