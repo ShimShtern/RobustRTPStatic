@@ -34,8 +34,8 @@ const ZNZTH = 1e-4
 const BIG_OBJ = 1e8
 const UNIFORM_GAMMA = true
 
-const LAZY_CONS_PERORGAN_TH = 5e4 # 5e3 #1e5 #5e4
-const LAZY_CONS_PERORGAN_INIT_NUM = 4000000 #2000 #4000000 #4000 #4000000		#maximum number of constraints for OAR added in model initialization
+const LAZY_CONS_PERORGAN_TH = 5e3 #5e4 # 5e3 #1e5 #5e4
+const LAZY_CONS_PERORGAN_INIT_NUM = 4000 #2000 #4000000 #4000 #4000000		#maximum number of constraints for OAR added in model initialization
 const LAZY_CONS_PERORGAN_NUM_PER_ITER = 200 #maximum number of constraints for OAR added in each iteration
 const MAX_LAZY_CON_IT = 1e6		#maximum number of iterations done for adding OAR constraints
 
@@ -43,7 +43,7 @@ const LAZYCONS_TIGHT_TH = 0.01
 const MAX_VIOL_RATIO_TH = 0.01
 
 
-const MAX_V_CONS = 1000000000 #10 #100000000 #Inf #10 #can be set to infinity
+const MAX_V_CONS = 2s #1000000000 #10 #100000000 #Inf #10 #can be set to infinity
 const MAX_VIOL_EPS = 1e-2 #oar constraint violation allowed NOT USED
 const MAX_VIOL_EPS_INIT = 10  #initial oar constraint violation allowed in phase I / to generate homogeneity constraints
 
@@ -942,17 +942,16 @@ function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, ph
 				newObj = JuMP.objective_value(model)
 				x = value.(xVar)
 				#set_optimizer_attribute(model,"CPX_PARAM_LPMETHOD",1)
+				num_const_added_oar = 0
+				prev_viol_oar = max_viol_oar
+				if !__ALLCONS_NO_GENERATION
+					max_viol_oar, num_const_added_oar = addMostViolated!(model, LAZY_CONS_PERORGAN_NUM_PER_ITER, x, t, tmax,β,alwaysCreateDeltaVars)
+				end
 				if ( (prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage == 1 ) || num_const_added_oar == 0 #|| __ALLCONS_NO_GENERATION  #abs(prev_viol_oar-max_viol_oar)/prev_viol_oar < MAX_VIOL_RATIO_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage==1)   #&& (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
 					println("Terminating lazy cons loop at It= ", it, "  Infeas reduction: ", (prev_viol_oar-max_viol_oar)/prev_viol_oar," Obj red %: ", (prevObj-newObj)/prevObj, " phase: ", stage, #" last solve simplex iter: ", simplex_iterations(model),
 					" Simplex iter: ", simplex_iterations(model))
 					flush(stdout)
 					break
-				end
-
-				num_const_added_oar = 0
-				prev_viol_oar = max_viol_oar
-				if !__ALLCONS_NO_GENERATION
-					max_viol_oar, num_const_added_oar = addMostViolated!(model, LAZY_CONS_PERORGAN_NUM_PER_ITER, x, t, tmax,β,alwaysCreateDeltaVars)
 				end
 				if __DEBUG >= DEBUG_LOW
 					println("max_viol_oar= ", max_viol_oar, "  num_const_added_oar =", num_const_added_oar)
