@@ -35,15 +35,15 @@ const BIG_OBJ = 1e8
 const UNIFORM_GAMMA = true
 
 const LAZY_CONS_PERORGAN_TH = 5e3 #5e4 # 5e3 #1e5 #5e4
-const LAZY_CONS_PERORGAN_INIT_NUM = 4000 #2000 #4000000 #4000 #4000000		#maximum number of constraints for OAR added in model initialization
-const LAZY_CONS_PERORGAN_NUM_PER_ITER = 200 #maximum number of constraints for OAR added in each iteration
+const LAZY_CONS_PERORGAN_INIT_NUM = 2000 #2000 #4000000 #4000 #4000000		#maximum number of constraints for OAR added in model initialization
+const LAZY_CONS_PERORGAN_NUM_PER_ITER = 400 #maximum number of constraints for OAR added in each iteration
 const MAX_LAZY_CON_IT = 1e6		#maximum number of iterations done for adding OAR constraints
 
 const LAZYCONS_TIGHT_TH = 0.01
 const MAX_VIOL_RATIO_TH = 0.01
 
 
-const MAX_V_CONS = 2s #1000000000 #10 #100000000 #Inf #10 #can be set to infinity
+const MAX_V_CONS = 5 #1000000000 #10 #100000000 #Inf #10 #can be set to infinity
 const MAX_VIOL_EPS = 1e-2 #oar constraint violation allowed NOT USED
 const MAX_VIOL_EPS_INIT = 10  #initial oar constraint violation allowed in phase I / to generate homogeneity constraints
 
@@ -903,9 +903,9 @@ function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, ph
 
     @assert(isempty(dvrhs) || sum(tmax-t)>0)
     ptvN = firstIndices[1]-1
-    model = m
+    global model = m
     if m == nothing
-        model = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ,ϕ)
+        global model = initModel(Din,firstIndices,t,tmax,dvrhs,β,phi_u_n,λ,ϕ)
     else
         dbarVarDict = model[:dbar]
 		#@show dbarVarDict
@@ -938,6 +938,7 @@ function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, ph
 		if (sum_num_const_added_hom > 0 && newObj == BIG_OBJ) ||  !__ALLCONS_NO_GENERATION
 			for it = 1:MAX_LAZY_CON_IT
 				println("outer iteration=",iter," inner iteration=",it, " max_viol_oar=",max_viol_oar)
+				global model
 				solveModel!(model,firstIndices)
 				newObj = JuMP.objective_value(model)
 				x = value.(xVar)
