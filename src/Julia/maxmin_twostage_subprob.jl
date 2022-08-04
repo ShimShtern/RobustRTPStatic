@@ -546,7 +546,7 @@ function findViolatingPairs!(m,consCollect,μ,L,phi_u_n,phi_b_n,dists,d)
     ptvN = length(d)
     lthviol = VIOL_EPS
 
-    count_v=spzeros(Int64,ptvN)
+    #count_v=spzeros(Int64,ptvN)
     for i1 = 1:(ptvN-1)
         for k=1:2
             if k==1
@@ -567,17 +567,17 @@ function findViolatingPairs!(m,consCollect,μ,L,phi_u_n,phi_b_n,dists,d)
                 if v[l] > lthviol + VIOL_EPS
                     if k==1
                         insert!(consCollect,v[l],[is; js[l]])
-                        count_v[is] += 1
-                        count_v[js[l]] += 1
+                        #count_v[is] += 1
+                        #count_v[js[l]] += 1
                     else
                         insert!(consCollect,v[l],[is[l]; js])
-                        count_v[is[l]] += 1
-                        count_v[js] += 1
+                        #count_v[is[l]] += 1
+                        #count_v[js] += 1
                     end
                     if length(consCollect) > L
                         tmp, pair = first(consCollect)
-                        count_v[pair[1]] -= 1
-                        count_v[pair[2]] -= 1
+                        #count_v[pair[1]] -= 1
+                        #count_v[pair[2]] -= 1
                         delete!((consCollect,startof(consCollect)))
                         lthviol, tmp = first(consCollect)
                     end

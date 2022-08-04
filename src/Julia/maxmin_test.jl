@@ -34,6 +34,7 @@ if Sys.islinux()
     gamma_const = parse(Float64,ARGS[2])
     δ = parse(Float64,ARGS[3])#0.05
 end
+#for patient 4
 α=[0.03145+gamma_const,0.00228,-7.885e-5]
 max_γ=0.05+gamma_const
 max_dist=10

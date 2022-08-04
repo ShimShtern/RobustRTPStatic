@@ -7,8 +7,8 @@ using SparseArrays
 using FileIO, JLD2
 using Printf
 bLOAD_FROM_FILE=true
-bLOAD_FROM_FILE_gamma=false
-bLOAD_FROM_FILE_projection = false
+bLOAD_FROM_FILE_gamma=true
+bLOAD_FROM_FILE_projection = true
 
 ρ = [1;1;1]#[0.99 ; 1; 1]
 β = 0 #1e-8
@@ -17,7 +17,7 @@ file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 si
 ϕ = read(file, "omf_Vec")
 close(file)
 println("after read MAT")
-InputXLS="./ResultsFiles/no_dose_vol_b_no_zeros.xlsx"#"./ResultsFiles/no_dose_vol_box.xlsx"#"no_dose_vol.xlsx" #
+InputXLS="./ResultsFiles/no_dose_vol_202207.xlsx"#"./ResultsFiles/no_dose_vol_box.xlsx"#"no_dose_vol.xlsx" #
 InputSheet="no_dose_vol"#"no_dose_vol_box"#"no_dose_vol"#"nominal_solutions"#
 summary_file_name="./ResultsFiles/solution_evaluation2.txt"#"./ResultsFiles/solution_evaluation_box.txt"#"solution_evaluation_nominal.txt" #
 
@@ -115,7 +115,7 @@ inD = []
 println(firstIndices)
 Ɣ_start = 0.05
 Ɣ_end = 0.05
-δ_end = 0
+δ_end = 0.1
 δ_start = Dict(0 => 0.05, 0.01 => 0.03, 0.02 => 0.02, 0.03 => 0.02, 0.04 => 0.01, 0.05 => 0.01, 0.06 => 0, 0.07 => 0, 0.08 => 0, 0.09 => 0, 0.1 => 0)
 
 @assert(size(γ, 1) == firstIndices[1] - 1)#need to make sure these are the same
