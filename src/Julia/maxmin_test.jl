@@ -14,6 +14,7 @@ bLOAD_FROM_FILE_projection = false
 bSAVE_FILES = true
 bSAVE_DISTORPROJ_FILES = true
 
+MAX_HOMOGEN_CONSTR = 2000
 #file = matopen("liverEx2.mat")
 ρ = [0.99; 1; 1]
 #ρ = [1; 1; 1]
@@ -167,7 +168,7 @@ else
     end
 end
 
-time_prof=@elapsed model=maxmin_twostage_subprob.robustCuttingPlaneAlg(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,λ, ϕ, 200)
+time_prof=@elapsed model, htCn, homCn =maxmin_twostage_subprob.robustCuttingPlaneAlg!(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,λ, ϕ, MAX_HOMOGEN_CONSTR)
 
 @show time_prof
 
@@ -180,7 +181,7 @@ reg2 = value.(model[:reg2])
 PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
 minPhysDose=minimum(D[1:firstIndices[1]-1,:]*xx)
 d = D[1:firstIndices[1]-1,:]*xx
-μ_nominal = CalculateMinHom(d,firstIndices,dists,ϕ,ϕ)
+μ_nominal = evaluate_solution.CalculateMinHom(d,firstIndices,dists,ϕ,ϕ)
 g_nominal = minimum(ϕ.*d[1:firstIndices[1]-1])
 #file_name=@sprintf("results_%1.3f_%.2f_%.3f_%.2f.jld2",β,μ,δ,gamma_const)
 #FileIO.save(file_name,"δ",δ,"μ",μ,"β",β,"t",t,"gamma_const",gamma_const,"time_prof",time_prof,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar)
