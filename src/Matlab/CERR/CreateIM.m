@@ -17,9 +17,9 @@ D = sparse(influenceM);
 %create organ IM
 for i=1:numel(Organ_S_nums)
     influenceM = getSingleGlobalInfluenceM(planC{indexS.IM}(IMNumber).IMDosimetry, Organ_S_nums(i));
-    V{i+1}=(1:size(influenceM,1))+V{i}(end);
+    V{i+1}=(1:size(influenceM,1));%+V{i}(end);
     V{i+1}=V{i+1}(any(influenceM'));
-    D = D+influenceM;
+    D = max(D,influenceM);
 end
 D = sparse(D);
 

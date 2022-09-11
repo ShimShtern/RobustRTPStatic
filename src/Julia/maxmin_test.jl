@@ -10,21 +10,23 @@ using FileIO, JLD2
 using Printf
 bLOAD_FROM_FILE=false
 bLOAD_FROM_FILE_gamma=false
-bLOAD_FROM_FILE_projection = false
+bLOAD_FROM_FILE_projection = true
 bSAVE_FILES = true
-bSAVE_DISTORPROJ_FILES = true
+bSAVE_DISTORPROJ_FILES = false
 
 MAX_HOMOGEN_CONSTR = 2000
 #file = matopen("liverEx2.mat")
-ρ = [0.99; 1; 1]
+#ρ = [0.99; 1; 1]
 #ρ = [1; 1; 1]
 #t = [40.0 ; 40.0]
 #t = [62; 54; 100]
-t=[60; 54; 100]
+#t=[60; 54; 100]
+ρ = [1; 1; 1]
+t = [62; 54; 100]
 tmax = [62; 54; 100]
 #β = 0.01
 β = 0 #1e-8 # coeficient do deal with dose volume constraint
-λ = [0; 0.001] # coeficient for regularizer preventing multiple solutions
+λ = [0; 0] # coeficient for regularizer preventing multiple solutions
 #the first parameter coincides with the sum(x_i) regularizer
 #the first parameter coincides with the g_nom - minimum nominal dose regularizer
 δ=0.04 #0.01:0.01:0.1
@@ -36,11 +38,12 @@ if Sys.islinux()
     δ = parse(Float64,ARGS[3])#0.05
 end
 #for patient 4
-α=[0.03145+gamma_const,0.00228,-7.885e-5]
-max_γ=0.05+gamma_const
+α=[0.0309449+gamma_const,-0.0014883, 0.0136452]
 max_dist=10
-gamma_func(x) = (x<=max_dist)*(x>0)*(α'*[1;x;x^2])+(x>max_dist)*max_γ #0.04
-file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
+max_γ=α'*[1;max_dist;log(max_dist)]+gamma_const
+gamma_func(x) = (x<=max_dist)*(x>0)*(α'*[1;x;log(x)])+(x>max_dist)*max_γ #0.04
+MatDataFile="Patient4_Visit1_16beams_refpoint5_notincludingdeadvoxels_20220810.mat"
+file = matopen(MatDataFile) #changed from 13 since it did not cover the PTV
 γ = read(file, "neighbors_Mat")
 ϕ = read(file, "omf_Vec")
 close(file)
@@ -55,7 +58,7 @@ if bLOAD_FROM_FILE
     D = FileIO.load(D_file, "D")
     firstIndices, dvrhs = FileIO.load(D_file, "firstIndices", "dvrhs")
 else
-    file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
+    file = matopen(MatDataFile)
     inD = read(file, "Dij")
     V = read(file, "V")
     close(file)
@@ -82,7 +85,7 @@ else
     dvrhs = zeros(length(V) - 1)
 
     # skipping the last strucure that includes dead voxels?
-    for k = 1:length(V)-1
+    for k = 1:length(V)#-1
         if k > 1 #size(D,1)>0
             println(size(D))
             global firstIndices = [firstIndices; size(D, 1) + 1]
@@ -119,7 +122,7 @@ else
     end
     if bSAVE_FILES
         FileIO.save(
-            "Patient4_D_formatted.jld2",
+            D_file,
             "D",
             D,
             "firstIndices",
@@ -185,7 +188,8 @@ d = D[1:firstIndices[1]-1,:]*xx
 g_nominal = minimum(ϕ.*d[1:firstIndices[1]-1])
 #file_name=@sprintf("results_%1.3f_%.2f_%.3f_%.2f.jld2",β,μ,δ,gamma_const)
 #FileIO.save(file_name,"δ",δ,"μ",μ,"β",β,"t",t,"gamma_const",gamma_const,"time_prof",time_prof,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar)
-summary_file_name="./NewResultsFiles/no_dose_vol_nom_reg.txt" # not recommended that 2 processes print to same file -- check with shimrit
+#summary_file_name="./NewResultsFiles/no_dose_vol_nom_reg.txt" # not recommended that 2 processes print to same file -- check with shimrit
+summary_file_name="./ResultsFiles/no_dose_vol_20220811.txt"
 open(summary_file_name,"a") do io
     println(io,μ,",",δ,",",gamma_const,",",β,",",λ[1],",",λ[2],",",t,",",g,",",reg1,",",reg2,",",PhysHom,",",minPhysDose,",",time_prof,",",xx,",",μ_nominal,",",g_nominal)
 end
