@@ -16,7 +16,7 @@ import LightGraphs.Parallel
 using FileIO, JLD2
 using Printf
 
-const __ALLCONS_NO_GENERATION = false
+const __ALLCONS_NO_GENERATION = false #true adds all constraint, false generate constraints
 
 const NO_DEBUG = 0
 const DEBUG_LOW = 1
@@ -27,7 +27,7 @@ const __SOLVER_DEBUG = 0 #1
 
 #using Plots
 const INITXNORM = 100
-const VIOL_EPS = 1e-2 #allowed violation for homogeneity constraints
+const VIOL_EPS = 1e-4 #allowed violation for homogeneity constraints
 const INFEAS_TOL = 1e-5
 const DBARNZTH = 2e-6
 const ZNZTH = 1e-4
@@ -84,12 +84,27 @@ struct GlobalIndexes
 	  #_GrbIdxToDbarIdx::Dict{Cint,Int64}
 end
 
+struct Solution
+	 	gvalue::Float64
+       basicXIdxs::Vector{Int64}
+       basicDeltaIdxs::Vector{Int64}
+	   XValue::Vector{Float64}
+	   DbarDict::Dict{Int64,Float64}
+end
+
+struct Solution2
+       basicXIdxs::Vector{Int64}
+       basicDeltaIdxs::Vector{Int64}
+	   XValue::Vector{Float64}
+	   DbarDict::Dict{Int64,Vector{AffExpr}}
+end
+
 function clearGlobalRunData()
 	_V = nothing
 	_N = nothing
 #	_dbarIdxToGrbIdx = nothing
 #	_GrbIdxToDbarIdx = nothing
-	gc()
+	GC.gc()
 end
 
 function getGlobals()
@@ -100,6 +115,18 @@ function getGlobals()
 	IndexStr=GlobalIndexes(deepcopy(_V),deepcopy(_N))#,deepcopy(_dbarIdxToGrbIdx),deepcopy(_GrbIdxToDbarIdx))
 	return IndexStr
 end
+
+function initGlobals(Din,firstIndices)
+	global _V = fill(Int[],length(firstIndices)+1)
+    global _N = fill(Int[],length(firstIndices)+1)
+	global _D = Din
+	n, nb = size(Din)
+	_V[1] = 1:firstIndices[1]-1   # PTV
+	for k = 1:length(firstIndices)-1
+        _V[k+1] = firstIndices[k]:firstIndices[k+1]-1
+    end
+end
+
 
 function GetSol(m)
 	basicXIdxs, basicDeltaIdxs = getBasisXandDelta(m)
@@ -132,7 +159,7 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
 	#grb = unsafe_backend(m)
 
 	MOI.set(m, MOI.Silent(), true)
-	#MOI.set(m, MOI.NumberOfThreads(), 3)
+	MOI.set(m, MOI.NumberOfThreads(), 1)
 	#set_optimizer_attribute(m,"CPX_PARAM_LPMETHOD",4)
 	#set_optimizer_attribute(m,"CPX_PARAM_BAREPCOMP",1e-4)
 	if __SOLVER_DEBUG > 0
@@ -536,9 +563,9 @@ function findViolatingPairs!(m,consCollect,μ,L,phi_u_n,phi_b_n,dists,d)
 end
 
 
-function evaluateDevNumNoDbar(m, t, tmax)
+function evaluateDevNumNoDbar(x, t, tmax)
 	#oarIdxs = find(x->x > 0,tmax-t)
-	x = value.(m[:x])
+	#x = value.(m[:x])
 	violNum = zeros(length(t))
 	violSum = zeros(length(t))
 	for k = 1:length(t)
@@ -604,8 +631,8 @@ function betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ
 		println("********* In betaBisection, current βmid=",βmid)
 		m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βmid,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 		#dbar = m[:dbar]
-
-		dvlhs, devSum = evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
+		x = value.(m[:x])
+		dvlhs, devSum = evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
 		push!(ResultsArray,[1,βmid,value(m[:g]),dvlhs[idx],devSum[idx],value.(m[:x])])
 		if dvlhs[idx] - BISECTION_GAP < dvrhs[idx] && dvlhs[idx] >= dvrhs[idx]
 			βlb = βmid
@@ -762,6 +789,7 @@ function getMaxLessThanConsDual(m,t=nothing)
 end
 
 function ComputeScaling(Din, firstIndices, t,tmax)
+	#compute number of voxels in organ in which t_max>t
 	if firstIndices[end]<size(Din)[1]+1
 		firstIndicesnew = [firstIndices;size(Din)[1]+1]
 	else
@@ -862,7 +890,7 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	m, htCn, homCn = robustCuttingPlaneAlg!(Din, firstIndices, tmax, tmax, [], 0, μ, phi_u_n, phi_b_n, dists, [0;0], 0, L, m, false)
 	LBg = value(g)
 	LBx = value.(m[:x])
-	devNum, devSum = evaluateDevNumNoDbar(m, t, tmax)
+	devNum, devSum = evaluateDevNumNoDbar(LBx, t, tmax)
 	violNumLb = devNum[idx]
 	obj_lb=objective_value(m)
 	betaLb = 0
@@ -875,7 +903,7 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 			m, obj_lb_new = AddBudgetConstraint!(m, Din, firstIndices, dvrhs, t ,tmax, μ, phi_u_n, phi_b_n, dists, budget_limit, L)
 			LBGNew = value(m[:g])
 			LBx = value.(m[:x])
-			devNum, devSum = evaluateDevNumNoDbar(m, t, tmax)
+			devNum, devSum = evaluateDevNumNoDbar(LBx, t, tmax)
 			violNumLb = devNum[idx]
 			@assert(budget_limit[idx]-devSum[idx]<1e-5)
 			betaLb = (LBg-LBGNew)*scaling/(devSum[idx]-budget_limit[idx])
@@ -898,7 +926,8 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	end
 	set_optimizer_attribute(m,"Method",4)
 	m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βLb,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
-	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
+	x= value.(m[:x])
+	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
 	dbar = m[:dbar]
 	new_num_dbar=length(dbar)
 	NumConstOld = num_constraints(m,AffExpr, MOI.LessThan{Float64})+num_constraints(m,AffExpr, MOI.GreaterThan{Float64})
@@ -917,7 +946,8 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βnew,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 		dbar = m[:dbar]
 		new_num_dbar=length(dbar)
-		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(m,t,tmax) # function that returns deviation vector with dimension of OAR num
+		x=value.(m[:x])
+		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
 		NumConstNew=num_constraints(m,AffExpr, MOI.LessThan{Float64})+num_constraints(m,AffExpr, MOI.GreaterThan{Float64})
 		SolNew=GetSol(m)
 		if (new_num_dbar>old_num_dbar || NumConstNew>NumConstOld)
@@ -1016,12 +1046,15 @@ function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, ph
 				#set_optimizer_attribute(model,"CPX_PARAM_LPMETHOD",1)
 				num_const_added_oar = 0
 				prev_viol_oar = max_viol_oar
+				println(solution_summary(model))
+				println(termination_status(model))
+				simplex_iter=simplex_iterations(model)
 				if !__ALLCONS_NO_GENERATION
 					max_viol_oar, num_const_added_oar = addMostViolated!(model, LAZY_CONS_PERORGAN_NUM_PER_ITER, x, t, tmax,β,alwaysCreateDeltaVars)
 				end
 				if ( (prevObj-newObj)/prevObj < LAZYCONS_TIGHT_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage == 1 ) || num_const_added_oar == 0 #|| __ALLCONS_NO_GENERATION  #abs(prev_viol_oar-max_viol_oar)/prev_viol_oar < MAX_VIOL_RATIO_TH && max_viol_oar<=MAX_VIOL_EPS_INIT && stage==1)   #&& (isempty(dvrhs) || stage ==1 || num_const_added_wdv == 0))
 					println("Terminating lazy cons loop at It= ", it, "  Infeas reduction: ", (prev_viol_oar-max_viol_oar)/prev_viol_oar," Obj red %: ", (prevObj-newObj)/prevObj, " phase: ", stage, #" last solve simplex iter: ", simplex_iterations(model),
-					" Simplex iter: ", simplex_iterations(model))
+					" Simplex iter: ", simplex_iter)
 					flush(stdout)
 					break
 				end
@@ -1056,6 +1089,7 @@ function robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,dvrhs,β,μ, phi_u_n, ph
         max_viol_hom=0
         if δ==0
 			if sum_num_const_added_hom == 0 || !__ALLCONS_NO_GENERATION
+				solveModel!(model,firstIndices)
             	max_viol_hom, constr_num = addNominalHomogenConstr!(model,d,phi_b_n,μ,L)
 			end
         else
