@@ -3,15 +3,15 @@ phi_under[phi_under.<0].= 0
 phi_bar = ϕ.+ δ
 phi_bar[phi_bar.>1].= 1
 
-gamma_func = FileIO.load(RegFileName, "gamma_func")
-gamma_func(x) = gamma_func(x)+gamma_const
+gamma_func_str  = FileIO.load(RegFileName, "gamma_func")
+eval(Meta.parse(gamma_func_str*"+gamma_const*(x>0)"))
 
 println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
 phi_u_n=[]
 phi_b_n=[]
 dists=[]
-file_name_gamma=@sprintf("./RS_Dists/%s_%s_Gamma_dist_new_%1.3f.jld2",Patient,Visit,gamma_const)
-file_name_proj=@sprintf("./Projections/%s_%s_Projection_new_%1.3f_%1.3f.jld2",Patient,Visit,gamma_const,δ)
+file_name_gamma=@sprintf("./Data/RS_Dists/%s_%s_Gamma_dist_new_%1.3f.jld2",Patient,Visit,gamma_const)
+file_name_proj=@sprintf("./Data/Projections/%s_%s_Projection_new_%1.3f_%1.3f.jld2",Patient,Visit,gamma_const,δ)
 if bLOAD_FROM_FILE_gamma
     dists = FileIO.load(file_name_gamma,"dists")
 else
@@ -28,3 +28,5 @@ else
         FileIO.save(file_name_proj,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n)
     end
 end
+println(maximum(phi_bar-phi_under))
+println((phi_b_n-phi_u_n))

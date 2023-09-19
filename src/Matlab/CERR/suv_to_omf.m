@@ -19,7 +19,7 @@ suvMnoPTV = suvM(MaskNoPTV);
 %tumours—implications for treatment response" MCKEOWN 2014
 refPt = prctile(suvMnoPTV,50);%.1); % most oxygenated voxel %was 5% for Patient4
 ref_pO2=26; 
-%refPt = mean(suvMnoPTV);
+%refPt = mean(suvMnoPTV)
 % conversion P02=(A-Uptake)*C/(Uptake-A+B)
 %specific for FMISO Dasu (2012) From Lindblom et al. (2018)
 A = 10.9;
@@ -50,7 +50,7 @@ maxOer = max(oer(MaskNoPTV),[],'all');
 omf = zeros(size(oer));
 omf(Mask) = oer(Mask)/maxOer;
 omf(MaskNoPTV)=0;
-deadref=prctile(suvMnoPTV,5);
+deadref=prctile(suvMnoPTV,5)
 Mask_PTV_deadcells=(suvM<=deadref);
 sum(Mask_PTV_deadcells(:).*Mask_PTV(:))
 omf(logical(Mask_PTV_deadcells.*Mask_PTV))=1;

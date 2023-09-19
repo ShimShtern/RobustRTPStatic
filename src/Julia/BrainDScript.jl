@@ -63,7 +63,7 @@ OARSize = []
          if rowN > 0
              global D = [D; appendD]
              if k > 1
-	         OARSize[k-1] = length(oarIndices)
+	         	 OARSize[k-1] = length(oarIndices)
                  dvrhs[k-1] = floor((1 - ρ[k-1]) * length(V[k]))
                  println("DVRHS: ", dvrhs[k-1] , " for organ: ", k-1)
              end
@@ -77,6 +77,9 @@ OARSize = []
  end
  println(OARSize)
  dvrhs = (-ρ.+1.0).*OARSize
+ if sum(dvrhs)==0
+	 dvrhs=[]
+ end
 
  inD = []
  println(firstIndices)

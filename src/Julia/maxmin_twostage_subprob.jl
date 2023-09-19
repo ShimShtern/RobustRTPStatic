@@ -290,10 +290,15 @@ function computeProjections(γ, gamma_func, phi_under, phi_bar,dists=[])
             #GrB_init(GrB_NONBLOCKING)
             ##broadcast!(.!=,γ,0)
             #bg = BLASGraph(γ)#{Int64}(n)
+			#println(γ[1:12,1:12])
             g = SimpleGraph(γ)
         	for i=1:n
-            	dists[i,:]=gamma_func.(gdistances(g,i))#; sort_alg=RadixSort)
-        	end
+				comp_dist = gdistances(g,i)
+				println(comp_dist[i])
+				dists[i,:]=gamma_func.(comp_dist)#; sort_alg=RadixSort)
+				println(dists[i,i])
+			end
+			#println(dists[1:12,1:12])
 		end
     end
     ###################################### save dists for debug
@@ -309,8 +314,21 @@ function computeProjections(γ, gamma_func, phi_under, phi_bar,dists=[])
 	#@show minimum(phi_bar_n-phi_under_n)
     if __DEBUG >= DEBUG_LOW
 		for i = 1:length(phi_under_n)
-			if phi_under_n[i] > phi_bar_n[i]
+			if phi_under_n[i] > phi_bar_n[i] || phi_under_n[i]<phi_under[i] || phi_bar_n[i]>phi_bar[i]
+				val, ind=findmax(phi_under-dists[i,:]',1)
+				org_dist=gdistances(g,i)[ind]
+				phi_dist=gamma_func(org_dist)
+				phi_dist2=dists[i,ind]
+				@printf("i=%d,ind=%d,phi_i=%f,phi_ind=%f,dist=%f,phi_dist1=%f,phi_dist2=%f,bphi=%f\n",i, ind,phi_under[i],phi_under[ind],org_dist,phi_dist,phi_dist2,phi_bar[ind])
+				error("")
+				#
+				#@printf("i=%d,ind=%d,dist=%d,phi_dist1=%f,phi_dist2=%f,uphi,=%f\n",i, ind,org_dist,phi_dist,phi_dist2,phi_under[ind])
+				#val, ind=findmin(phi_bar+dists[i,:],2)
+				#org_dist=gdistances(g,i)[ind]
+				#phi_dist=gamma_func(org_dist)
+				#phi_dist2=dists[i,ind]
 				println("phi_under_n[i]=", phi_under_n[i], " phi_bar_n[i]=", phi_bar_n[i])
+				#error("")
 			end
 		end
 	end

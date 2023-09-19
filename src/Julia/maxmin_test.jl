@@ -8,11 +8,12 @@ using JuMP
 using SparseArrays
 using FileIO, JLD2
 using Printf
-bLOAD_FROM_FILE=false
+using LinearAlgebra
+bLOAD_FROM_FILE=true
 bLOAD_FROM_FILE_gamma=false
 bLOAD_FROM_FILE_projection = false
 bSAVE_FILES = true
-bSAVE_DISTORPROJ_FILES = false
+bSAVE_DISTORPROJ_FILES = true
 
 MAX_HOMOGEN_CONSTR = 2000
 #file = matopen("liverEx2.mat")
@@ -29,9 +30,9 @@ tmax = [62; 54; 100]
 λ = [0; 0] # coeficient for regularizer preventing multiple solutions
 #the first parameter coincides with the sum(x_i) regularizer
 #the first parameter coincides with the g_nom - minimum nominal dose regularizer
-δ=0.04 #0.01:0.01:0.1
+δ=0 #0.01:0.01:0.1
 μ = 1.1 #1.25 #1.1
-gamma_const=0
+gamma_const=0.04
 if Sys.islinux()
     μ = parse(Float64,ARGS[1])#1.2 #1.25 #1.1
     gamma_const = parse(Float64,ARGS[2])
@@ -41,11 +42,10 @@ end
 
 include("BrainDScript.jl")
 include("BrainPhiScript.jl")
-
+println(dvrhs)
 time_prof=@elapsed model, htCn, homCn =maxmin_twostage_subprob.robustCuttingPlaneAlg!(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,λ, ϕ, MAX_HOMOGEN_CONSTR)
 
 @show time_prof
-
 maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) # print out verbose output
 
 xx = value.(model[:x])
