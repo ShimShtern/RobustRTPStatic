@@ -72,7 +72,7 @@ global _N # voxels by organ not loaded into optimization
 #global _dbarIdxToGrbIdx
 #global _GrbIdxToDbarIdx
 
-export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computeProjections, parametricSolveDecreasing
+export initModel, solveModel!,robustCuttingPlaneAlg!, printDoseVolume, computeProjections, parametricSolveIncreasing, CVAR_solve
 #optimizer_constructor = optimizer_with_attributes(SCS.Optimizer, "max_iters" => 10, "verbose" => 0)
 #set_optimizer(problem, optimizer_constructor)
 # Load Optimizer and model
@@ -294,10 +294,8 @@ function computeProjections(γ, gamma_func, phi_under, phi_bar,dists=[])
             g = SimpleGraph(γ)
         	for i=1:n
 				comp_dist = gdistances(g,i)
-				println(comp_dist[i])
 				dists[i,:]=gamma_func.(comp_dist)#; sort_alg=RadixSort)
-				println(dists[i,i])
-			end
+        	end
 			#println(dists[1:12,1:12])
 		end
     end
@@ -589,8 +587,10 @@ function evaluateDevNumNoDbar(x, t, tmax)
 	for k = 1:length(t)
 	  	if tmax[k] > t[k]
 			dose = _D[[_V[k+1];_N[k+1]],:]*x
-			violSum[k] += sum(dose[i]-t[k] for i in 1:length(dose) if dose[i]>t[k]+DBARNZTH)
 			violNum[k] += count(x->x > t[k] + DBARNZTH, dose)
+			if violNum[k]>0
+				violSum[k] += sum(dose[i]-t[k] for i in 1:length(dose) if dose[i]>t[k]+DBARNZTH)
+			end
 		end
 	end
 	return violNum, violSum
@@ -677,18 +677,23 @@ end
 
 # getBasisXandDelta
 function getBasisXandDelta(model)
+	println(termination_status(model))
+	println(MOI.get.(model, MOI.PrimalStatus()))
 	x = model[:x]
-	baseX = MOI.get.(model, MOI.VariableBasisStatus(), x)
-	#baseX = MOI.get(model, MOI.ConstraintBasisStatus(), LowerBoundRef(x))
-	#basicXIdxs = findall(x->x == MOI.NONBASIC,baseX) # nonbasic LB constraint means basic variable
-    basicXIdxs = findall(x->x == MOI.BASIC,baseX)
-#	dbar = m[:dbar] = Dict()
-  	basicDeltaIdxs = SortedSet{Int64}()
-	dbarVarDict = model[:dbar]
-	for (key,val) in dbarVarDict
-		baseDelta = MOI.get(model, MOI.VariableBasisStatus(), val)
-		if baseDelta == MOI.BASIC
-			insert!(basicDeltaIdxs,key)
+	IsBasic=(value.(x).>1e-10)
+	if sum(IsBasic)>0
+		baseX = MOI.get.(model, MOI.VariableBasisStatus(), x)
+		#baseX = MOI.get(model, MOI.ConstraintBasisStatus(), LowerBoundRef(x))
+		#basicXIdxs = findall(x->x == MOI.NONBASIC,baseX) # nonbasic LB constraint means basic variable
+    	basicXIdxs = findall(x->x == MOI.BASIC,baseX)
+		#	dbar = m[:dbar] = Dict()
+  		basicDeltaIdxs = SortedSet{Int64}()
+		dbarVarDict = model[:dbar]
+		for (key,val) in dbarVarDict
+			baseDelta = MOI.get(model, MOI.VariableBasisStatus(), val)
+			if baseDelta == MOI.BASIC
+				insert!(basicDeltaIdxs,key)
+			end
 		end
 	end
 	return basicXIdxs, basicDeltaIdxs
@@ -942,9 +947,11 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	for i in keys(dbar)
 		set_objective_coefficient(m, dbar[i], -βLb)
 	end
-	set_optimizer_attribute(m,"Method",4)
+	set_optimizer_attribute(m,"Method",5)
+	set_optimizer_attribute(m,"OutputFlag",1)
 	m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βLb,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 	x= value.(m[:x])
+	SolNew=GetSol(m)
 	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
 	dbar = m[:dbar]
 	new_num_dbar=length(dbar)
@@ -967,6 +974,7 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		x=value.(m[:x])
 		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
 		NumConstNew=num_constraints(m,AffExpr, MOI.LessThan{Float64})+num_constraints(m,AffExpr, MOI.GreaterThan{Float64})
+		println(termination_status(model))
 		SolNew=GetSol(m)
 		if (new_num_dbar>old_num_dbar || NumConstNew>NumConstOld)
 			if (βnew>βprev && maximum(devVecOld-devVecNew)>1) || !basesAdjacent(Sol1,Sol2,m)
@@ -996,6 +1004,37 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
     return m,βnew,ResultsArray
 end
 
+function CVAR_solve(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L=1)
+	#=based on Romeijn, H. Edwin, Ravindra K. Ahuja, James F. Dempsey, Arvind Kumar, and Jonathan G. Li.
+	 "A novel linear programming approach to fluence map optimization for intensity modulated radiation therapy
+	 treatment planning." Physics in Medicine & Biology 48, no. 21 (2003): 3521.=#
+	m = initModel(Din, firstIndices, tmax, tmax, [], 0, phi_u_n, [0;0], 0, [], false)
+	#add CVAR constraints
+	m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+	xVar = m[:x]
+	q=length(t)
+	@variable(m,dvvar[1:q])
+	for i=1:q
+		if t[i]<tmax[i]
+			OARsize=firstIndices[i+1]-firstIndices[i]
+			@variable(m,w[1:OARsize]>=0)
+			#@variable(m,𐤃[1:OARsize])
+			@expression(m, 𐤃[j=firstIndices[i]:firstIndices[i+1]-1], sum(Din[j,k]*xVar[k] for k in Din[j,:].nzind))
+			#for
+			#	add_constraint(m,𐤃[j]==sum(Din[j,k]*xVar[k] for k in Din[j,:].nzind))
+			#end
+			@constraint(m,dvvar[i]+sum(w)/dvrhs[i]<=t[i])
+			@constraint(m,cOAR[j=1:OARsize],w[j]>=𐤃[j+firstIndices[i]-1]-dvvar[i])
+		else
+			@constraint(m,dvvar[i]==0)
+		end
+	end
+	solveModel!(m,firstIndices)
+	xx=value.(m[:x])
+	dvvarvalue=value.(m[:dvvar])
+	m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+	return m, htCn, homCn
+end
 
 function unfixDeltaVariables!(m,t,tmax)
 	dbarVarDict = m[:dbar]

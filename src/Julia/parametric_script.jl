@@ -24,6 +24,7 @@ const bSAVE_DISTORPROJ_FILES = false
 # brain
 
 #λ=0 #unused reg param
+
 β = 0
 μ = 1.125 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
 δ = 0 #0.1  #0.1 #0.01:0.01:0.1

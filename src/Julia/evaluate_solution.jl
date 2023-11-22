@@ -79,4 +79,12 @@ function EvaluateSolution(d,firstIndices, dists,phi_u_n,phi_b_n)
     g=minimum(phi_u_n.*d[1:firstIndices[1]-1]) #CalculateMinBioDose
     return g, μ
 end
+
+function EvaluateEUD(d,firstIndices)
+    #calculating EUD for physical dose
+    α=-10
+    PTV_voxel_num=firstIndices[1]-1
+    EUD=(sum(d[1:PTV_voxel_num].^α)/PTV_voxel_num).^(1/α)
+    return EUD
+end
 end

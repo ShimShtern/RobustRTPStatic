@@ -28,5 +28,3 @@ else
         FileIO.save(file_name_proj,"phi_u_n",phi_u_n,"phi_b_n",phi_b_n)
     end
 end
-println(maximum(phi_bar-phi_under))
-println((phi_b_n-phi_u_n))
