@@ -61,7 +61,9 @@ const BIG_NUM = 1e6
 const OPTIMALITY_TOL = 1e-6
 const FEASIBILITY_TOL = 1e-6
 
-const W = 0.15 # bisection weight
+const W_th = 0.5 # bisection weight
+
+const BASIS_EPS = 1e-10 #determines minimal nonzero value to include in basis
 
 global const GRB_ENV = Gurobi.Env()
 
@@ -636,10 +638,10 @@ function betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ
 		if !isempty(dvlhsLB)
 			W = (dvrhs[idx]-dvlhsUB)/(dvlhsLB-dvlhsUB)
 			@assert(W>0)
-			if W>0.75
-				W=0.75
-			elseif W<0.25
-				W=0.25
+			if W>=1-W_th
+				W=1-W_th
+			elseif W<=W_th
+				W=W_th
 			end
 		else
 			W=0.5
@@ -647,11 +649,12 @@ function betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ
 			println("betaLb=", βlb, " betaUb=", βub, " W=", W, " violNumLb=", dvlhsLB, " violNumUB=",dvlhsUB)
 		βmid = βub*(1-W)+βlb*W
 		println("********* In betaBisection, current βmid=",βmid)
-		m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βmid,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		time1 = @elapsed m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βmid,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 		#dbar = m[:dbar]
 		x = value.(m[:x])
-		dvlhs, devSum = evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
-		push!(ResultsArray,[1,βmid,value(m[:g]),dvlhs[idx],devSum[idx],value.(m[:x])])
+		time2 = @elapsed dvlhs, devSum = evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
+		time = time1 + time2
+		push!(ResultsArray,[1,βmid,value(m[:g]),dvlhs[idx],devSum[idx],value.(m[:x]),time])
 		if dvlhs[idx] - BISECTION_GAP < dvrhs[idx] && dvlhs[idx] >= dvrhs[idx]
 			βlb = βmid
 			break
@@ -680,19 +683,35 @@ function getBasisXandDelta(model)
 	println(termination_status(model))
 	println(MOI.get.(model, MOI.PrimalStatus()))
 	x = model[:x]
-	IsBasic=(value.(x).>1e-10)
+	IsBasic=(value.(x).>BASIS_EPS)
+	basicXIdxs=[]
+	basicDeltaIdxs=[]
 	if sum(IsBasic)>0
-		baseX = MOI.get.(model, MOI.VariableBasisStatus(), x)
+		try
+			baseX = MOI.get.(model, MOI.VariableBasisStatus(), x)
+			basicXIdxs = findall(x->x == MOI.BASIC,baseX)
+		catch
+			println("catch 1")
+			basicXIdxs = findall(IsBasic)
+		end
 		#baseX = MOI.get(model, MOI.ConstraintBasisStatus(), LowerBoundRef(x))
 		#basicXIdxs = findall(x->x == MOI.NONBASIC,baseX) # nonbasic LB constraint means basic variable
-    	basicXIdxs = findall(x->x == MOI.BASIC,baseX)
-		#	dbar = m[:dbar] = Dict()
+    	#	dbar = m[:dbar] = Dict()
   		basicDeltaIdxs = SortedSet{Int64}()
 		dbarVarDict = model[:dbar]
-		for (key,val) in dbarVarDict
-			baseDelta = MOI.get(model, MOI.VariableBasisStatus(), val)
-			if baseDelta == MOI.BASIC
-				insert!(basicDeltaIdxs,key)
+		try
+			for (key,val) in dbarVarDict
+				baseDelta = MOI.get(model, MOI.VariableBasisStatus(), val)
+				if baseDelta == MOI.BASIC
+					insert!(basicDeltaIdxs,key)
+				end
+			end
+		catch
+			println("catch 2")
+			for (key,val) in dbarVarDict
+				if value(val)>BASIS_EPS
+					insert!(basicDeltaIdxs,key)
+				end
 			end
 		end
 	end
@@ -888,14 +907,15 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	println("##################")
 
 	scaling = Float64(ComputeScaling(Din, firstIndices, t,tmax))
-	m = initModel(Din, firstIndices, t, t, [], 0, phi_u_n, [0;0], 0, [], false)
+	time1=@elapsed m = initModel(Din, firstIndices, t, t, [], 0, phi_u_n, [0;0], 0, [], false)
 	g=m[:g]
 	set_objective_coefficient(m, g, scaling)
-	m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,t,t,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+	time2=@elapsed m, htCn, homCn = robustCuttingPlaneAlg!(Din,firstIndices,t,t,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+	time=time1+time2
 	UBg = value(m[:g])
 	UBx = value.(m[:x])
 	betaUb = getMaxLessThanConsDual(m)
-	push!(ResultsArray,[0,betaUb,UBg,0,0,UBx])
+	push!(ResultsArray,[0,betaUb,UBg,0,0,UBx,time])
 	m = nothing
 	clearGlobalRunData()
 
@@ -907,10 +927,11 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	println("Compute lower bound for beta")
 	println("##################")
 	budget_limit[idx] = (tmax[idx]-t[idx])*scaling
-	m = initModel(Din, firstIndices, tmax, tmax, [], 0, phi_u_n, [0;0], 0, [], false)
+	time1=@elapsed m = initModel(Din, firstIndices, tmax, tmax, [], 0, phi_u_n, [0;0], 0, [], false)
 	g=m[:g]
 	set_objective_coefficient(m, g, scaling)
-	m, htCn, homCn = robustCuttingPlaneAlg!(Din, firstIndices, tmax, tmax, [], 0, μ, phi_u_n, phi_b_n, dists, [0;0], 0, L, m, false)
+	time2=@elapsed m, htCn, homCn = robustCuttingPlaneAlg!(Din, firstIndices, tmax, tmax, [], 0, μ, phi_u_n, phi_b_n, dists, [0;0], 0, L, m, false)
+	time=time1+time2
 	LBg = value(g)
 	LBx = value.(m[:x])
 	devNum, devSum = evaluateDevNumNoDbar(LBx, t, tmax)
@@ -936,10 +957,10 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		end
 	end
 	println("betaLb=", betaLb, " betaUb=", betaUb," violNumLb=", violNumLb)
-	push!(ResultsArray,[0,betaLb,LBg,devNum[idx],devSum[idx],LBx])
+	push!(ResultsArray,[0,betaLb,LBg,devNum[idx],devSum[idx],LBx,time])
 
 	##
-	set_optimizer_attribute(m,"Method",4)
+	#set_optimizer_attribute(m,"Method",4)
 	βLb, βUb, ResultsArrayTemp = betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
 	append!(ResultsArray,ResultsArrayTemp)
 	println("************** after betaBisection, β = ", βLb)
@@ -949,7 +970,9 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	end
 	set_optimizer_attribute(m,"Method",5)
 	set_optimizer_attribute(m,"OutputFlag",1)
-	m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βLb,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+	time1=@elapsed m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βLb,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+	time2=@elapsed solveModel!(m,firstIndices)
+	time=time1+time2
 	x= value.(m[:x])
 	SolNew=GetSol(m)
 	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
@@ -968,25 +991,28 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		for i in keys(dbar)
 			set_objective_coefficient(m, dbar[i], -βnew)
 		end
-		m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βnew,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		time1=@elapsed m, htCn, homCn =  maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βnew,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 		dbar = m[:dbar]
 		new_num_dbar=length(dbar)
 		x=value.(m[:x])
 		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
 		NumConstNew=num_constraints(m,AffExpr, MOI.LessThan{Float64})+num_constraints(m,AffExpr, MOI.GreaterThan{Float64})
 		println(termination_status(model))
-		SolNew=GetSol(m)
+		time2=@elapsed SolNew=GetSol(m)
+		time=time+time1+time2
 		if (new_num_dbar>old_num_dbar || NumConstNew>NumConstOld)
-			if (βnew>βprev && maximum(devVecOld-devVecNew)>1) || !basesAdjacent(Sol1,Sol2,m)
+			time1=@elapsed is_adj=basesAdjacent(Sol1,Sol2,m)
+			time=time+time1
+			if (βnew>βprev && maximum(devVecOld-devVecNew)>1) || !is_adj
 				βnew=βprev
 				continue
 			end
 		end
 		if βnew!=βprev
-			push!(ResultsArray,[2,βnew,value(m[:g]),devVecNew[idx], devSumNew[idx],value.(m[:x])])
+			push!(ResultsArray,[2,βnew,value(m[:g]),devVecNew[idx], devSumNew[idx],value.(m[:x]),time])
 		end
 
-		β1,β2 = maxmin_twostage_subprob.getValidBetaInterval(m,t,tmax)
+		time=@elapsed β1,β2 = maxmin_twostage_subprob.getValidBetaInterval(m,t,tmax)
 		βLbB = -β2
 		βUbB = -β1
 		βprev = βnew
@@ -1004,35 +1030,66 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
     return m,βnew,ResultsArray
 end
 
-function CVAR_solve(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L=1)
+function CVAR_solve(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L=1,method="all")
 	#=based on Romeijn, H. Edwin, Ravindra K. Ahuja, James F. Dempsey, Arvind Kumar, and Jonathan G. Li.
 	 "A novel linear programming approach to fluence map optimization for intensity modulated radiation therapy
 	 treatment planning." Physics in Medicine & Biology 48, no. 21 (2003): 3521.=#
 	m = initModel(Din, firstIndices, tmax, tmax, [], 0, phi_u_n, [0;0], 0, [], false)
 	#add CVAR constraints
-	m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+	MOI.set(m, MOI.NumberOfThreads(), 10)
+	htCn=0
+	homCn=0
 	xVar = m[:x]
 	q=length(t)
 	@variable(m,dvvar[1:q])
-	for i=1:q
-		if t[i]<tmax[i]
-			OARsize=firstIndices[i+1]-firstIndices[i]
-			@variable(m,w[1:OARsize]>=0)
-			#@variable(m,𐤃[1:OARsize])
-			@expression(m, 𐤃[j=firstIndices[i]:firstIndices[i+1]-1], sum(Din[j,k]*xVar[k] for k in Din[j,:].nzind))
-			#for
-			#	add_constraint(m,𐤃[j]==sum(Din[j,k]*xVar[k] for k in Din[j,:].nzind))
-			#end
-			@constraint(m,dvvar[i]+sum(w)/dvrhs[i]<=t[i])
-			@constraint(m,cOAR[j=1:OARsize],w[j]>=𐤃[j+firstIndices[i]-1]-dvvar[i])
-		else
-			@constraint(m,dvvar[i]==0)
-		end
+	@constraint(m,con[i=1:q],dvvar[i]<=t[i])
+
+	isinit=fill(true,q)
+	w = m[:w] = Dict()
+	𐤃 = m[:𐤃] = Dict()
+	indices = fill(Int[],length(t))
+	if method=="iter"
+		threshold=t
+		m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+	elseif method=="all"
+		threshold=-1*t #just a negative number, adds all CVAR variables in the first iteration
+		solveModel!(m,firstIndices)
 	end
-	solveModel!(m,firstIndices)
-	xx=value.(m[:x])
-	dvvarvalue=value.(m[:dvvar])
-	m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+	iter = 0
+	xx_new = value.(xVar)
+	xx_old = xx_new.-1
+	while norm(xx_new-xx_old)>1e-10
+		d = Din*xx_new
+		xx_old = xx_new
+		iter = iter + 1
+		println("start iteration ",iter)
+		for i=1:q
+			if t[i]<tmax[i]
+				OARsize=firstIndices[i+1]-firstIndices[i]
+				if isinit[i]
+					indices[i] = firstIndices[i]:firstIndices[i+1]-1
+				else
+					indices[i] = setdiff(indices[i],keys(w))
+				end
+				println("adding varibales and constraints")
+				added_indices=findall(d[indices[i]].>threshold[i])
+				for j=added_indices
+					𐤃[j] = @expression(m, sum(Din[j,k]*xVar[k] for k in Din[j,:].nzind))
+					w[j] = @variable(m,lower_bound=0)
+					@constraint(m,w[j]>=𐤃[j]-dvvar[i])
+					set_normalized_coefficient(con[i],w[j],1/dvrhs[i])
+				end
+				println("added ",length(added_indices)," constraints")
+			end
+		end
+		#solveModel!(m,firstIndices)
+		#xx=value.(m[:x])
+		#dvvarvalue=value.(m[:dvvar])
+		println("Start resolve")
+		m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+		xx_new = value.(xVar)
+		println("End resolve")
+	end
 	return m, htCn, homCn
 end
 

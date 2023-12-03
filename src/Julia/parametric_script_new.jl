@@ -37,7 +37,7 @@ println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = "
 
 L=200
 m,βnew,ResultsArray=maxmin_twostage_subprob.parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists,L)
-outfile=sprintf("./ResultsFiles/ChangingBeta_delta%.2f_gamma%.2f_mu%.3f.csv",δ,gamma_const,μ)
+outfile=@sprintf("./ResultsFiles/ChangingBeta_delta%.2f_gamma%.2f_mu%.3f.csv",δ,gamma_const,μ)
 f = open(outfile, "w")
 writedlm(f, ResultsArray,",")
 close(f)

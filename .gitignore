@@ -3,3 +3,6 @@
 *.jld2
 *.xlsx
 *.csv
+*.txt
+*.png
+src/Julia/ServerCode/

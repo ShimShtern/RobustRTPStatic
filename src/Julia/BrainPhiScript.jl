@@ -4,6 +4,7 @@ phi_bar = ϕ.+ δ
 phi_bar[phi_bar.>1].= 1
 
 gamma_func_str  = FileIO.load(RegFileName, "gamma_func")
+print(gamma_func_str)
 eval(Meta.parse(gamma_func_str*"+gamma_const*(x>0)"))
 
 println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))

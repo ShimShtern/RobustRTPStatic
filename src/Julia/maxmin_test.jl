@@ -50,17 +50,17 @@ maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) #
 
 xx = value.(model[:x])
 g = value.(model[:g])
+mu_calc=evaluate_solution.CalculateMinHom(d,firstIndices,dists,phi_u_n,phi_b_n)
 reg1 = value.(model[:reg1])
 reg2 = value.(model[:reg2])
-PhysHom=maximum(D[1:firstIndices[1]-1,:]*xx)/minimum(D[1:firstIndices[1]-1,:]*xx)
-minPhysDose=minimum(D[1:firstIndices[1]-1,:]*xx)
 d = D[1:firstIndices[1]-1,:]*xx
-μ_nominal = evaluate_solution.CalculateMinHom(d,firstIndices,dists,ϕ,ϕ)
-g_nominal = minimum(ϕ.*d[1:firstIndices[1]-1])
+minPhysDose, PhysHom = evaluate_solution.CalculatePhysPerformance(d,firstIndices)
+g_nominal, μ_nominal = evaluate_solution.CalculateNomPerformance(d,firstIndices,ϕ)
+EUD = evaluate_solution.EvaluateEUD(d,firstIndices)
 #file_name=@sprintf("results_%1.3f_%.2f_%.3f_%.2f.jld2",β,μ,δ,gamma_const)
 #FileIO.save(file_name,"δ",δ,"μ",μ,"β",β,"t",t,"gamma_const",gamma_const,"time_prof",time_prof,"xx",xx,"g",g,"PhysHom",PhysHom,"phi_under",phi_under,"phi_bar",phi_bar)
 #summary_file_name="./NewResultsFiles/no_dose_vol_nom_reg.txt" # not recommended that 2 processes print to same file -- check with shimrit
 summary_file_name="./ResultsFiles/no_dose_vol_20230811.txt"
 open(summary_file_name,"a") do io
-    println(io,μ,",",δ,",",gamma_const,",",β,",",λ[1],",",λ[2],",",t,",",g,",",reg1,",",reg2,",",PhysHom,",",minPhysDose,",",time_prof,",",xx,",",μ_nominal,",",g_nominal)
+    println(io,μ,",",δ,",",gamma_const,",",β,",",λ[1],",",λ[2],",",t,",",g,",",mu_calc,",",reg1,",",reg2,",",PhysHom,",",minPhysDose,",",time_prof,",",xx,",",μ_nominal,",",g_nominal,",",EUD)
 end

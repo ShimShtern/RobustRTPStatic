@@ -6,7 +6,7 @@ using FileIO, JLD2
 
 BIG_NUM = 1e6
 
-export EvaluateSolution
+export EvaluateSolution, CalculateNomPerformance, CalculatePhysPerformance, EvaluateEUD
 
 function CalculateMinHom(d,firstIndices,dists,phi_u_n=[],phi_b_n=[])
     n = length(d)
@@ -33,40 +33,25 @@ function CalculateMinHom(d,firstIndices,dists,phi_u_n=[],phi_b_n=[])
             phiun = maximum(hcat(vec(phi_b_n[is]*ones(length(js),1)-dists[js,is]),vec(phi_u_n[js]*ones(length(is),1))),dims=2)
             μ1 = maximum(phibar.*d[is]./(phi_u_n[js].*d[js]))
             μ2 = maximum(phi_b_n[is].*d[is]./(phiun.*d[js]))
-            #=if max(μ1,μ2)>μ
-                if μ1>μ2
-                    max_val,i_ind=findmax(vec(phibar.*d[is]./(phi_u_n[js].*d[js])),dims=1)
-                    if length(is)>1
-                        i_max=is[i_ind[1]]
-                    else
-                        i_max=is[1]
-                    end
-                    if length(js)>1
-                        j_min=js[i_ind[1]]
-                    else
-                        j_min=js[1]
-                    end
-                    edge=1
-                else
-                    max_val,i_ind=findmax(vec(phi_b_n[is].*d[is]./(phiun.*d[js])),dims=1)
-                    if length(is)>1
-                        i_max=is[i_ind[1]]
-                    else
-                        i_max=is[1]
-                    end
-                    if length(js)>1
-                        j_min=js[i_ind[1]]
-                    else
-                        j_min=js[1]
-                    end
-                    edge=2
-                end
-            end=#
             μ=max(μ,μ1,μ2)
         end
     end
-    #@show i_max, j_min, max_val[1],edge
     return μ
+end
+
+function CalculateNomPerformance(d,firstIndices,phi)
+    V = 1:firstIndices[1]-1   # PTV
+    g = minimum(d[V].*phi)
+    μ =  maximum(d[V].*phi)/g
+    return g,μ
+end
+
+
+function CalculatePhysPerformance(d,firstIndices)
+    V = 1:firstIndices[1]-1   # PTV
+    g = minimum(d[V])
+    μ =  maximum(d[V])/g
+    return g,μ
 end
 
 function EvaluateSolution(d,firstIndices, dists,phi_u_n,phi_b_n)
