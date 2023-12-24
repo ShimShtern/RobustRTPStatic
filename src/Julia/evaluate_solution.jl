@@ -6,7 +6,7 @@ using FileIO, JLD2
 
 BIG_NUM = 1e6
 
-export EvaluateSolution, CalculateNomPerformance, CalculatePhysPerformance, EvaluateEUD
+export EvaluateSolution, CalculateNomPerformance, CalculatePhysPerformance, EvaluateEUD, CalculateNomPerformance
 
 function CalculateMinHom(d,firstIndices,dists,phi_u_n=[],phi_b_n=[])
     n = length(d)

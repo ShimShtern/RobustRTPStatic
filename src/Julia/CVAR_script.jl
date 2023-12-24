@@ -37,7 +37,7 @@ include("BrainDScript.jl")
 include("BrainPhiScript.jl")
 println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = " , minimum(phi_under), " max phi_bar = ", maximum(phi_bar), " max phi_under = ", maximum(phi_under))
 L=200
-method="iter"; #"all"
+method="all_no_init"; #"iter" (iterative adding variables) "all" (add all variables)
 time_prof=@elapsed model, htCn, homCn = maxmin_twostage_subprob.CVAR_solve(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L,method)
 maxmin_twostage_subprob.printDoseVolume(model, t, tmax, !isempty(dvrhs), true) # print out verbose output
 
@@ -48,10 +48,10 @@ reg2 = value.(model[:reg2])
 d = D*xx
 mu_calc=evaluate_solution.CalculateMinHom(d,firstIndices,dists,phi_u_n,phi_b_n)
 minPhysDose, PhysHom = evaluate_solution.CalculatePhysPerformance(d,firstIndices)
-g_nominal, μ_nominal = evaluate_solution.CalculateNomPerformance(d,firstIndices,dists,ϕ,ϕ)
+g_nominal, μ_nominal = evaluate_solution.CalculateNomPerformance(d,firstIndices,ϕ)
 violProp = evaluateOAR_solution.EvaluateOARSolution(d,firstIndices, t,tmax)
 EUD = evaluate_solution.EvaluateEUD(d,firstIndices)
 outfile="./ResultsFiles/CVAR.csv"
 open(outfile,"a") do io
-    println(io,method,",",μ,",",δ,",",gamma_const,",",t,",",tmax,",",1-ρ,",",mu_calc,",",g,",",PhysHom,",",minPhysDose,",",time_prof,",",xx,",",μ_nominal,",",g_nominal,",", EUD,",",violProp')
+    println(io,method,",",μ,",",δ,",",gamma_const,",",t,",",tmax,",",1 .- ρ,",",mu_calc,",",g,",",PhysHom,",",minPhysDose,",",time_prof,",",xx,",",μ_nominal,",",g_nominal,",", EUD,",",violProp')
 end

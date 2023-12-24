@@ -283,7 +283,7 @@ dev.off()
 delta_val=0.14
 df6b=df6%>%filter(delta==delta_val)
 df6b_marks=df6_marks%>%filter(delta==delta_val)
-g_limit=30
+g_limit=35
 df6b_new=snip_df(df6b,g_limit,"test")
 colnumlegend=1
 g <- ggplot(data=df6b_new) 
@@ -292,7 +292,7 @@ g +  scale_shape_manual(label=MethodLabels, values=c(16, 17, 15,18,6,3,4,0),guid
   scale_color_discrete(label=MethodLabels,guide=guide_legend(ncol=colnumlegend) )+
   scale_size_manual(label=MethodLabels, values=c(2,2,2,3,2,3,3,2), guide=guide_legend(ncol=colnumlegend))+
   scale_linetype_discrete(label=MethodLabels, guide=guide_legend(ncol=colnumlegend) )+
-  scale_x_continuous(breaks=seq(1.025,1.5,0.025),lim=c(1.05,1.15))+
+  scale_x_continuous(breaks=seq(1.025,1.5,0.025),lim=c(1.075,1.15))+
   ylab(TeX("\\hat{\\underline{d}}")) + xlab(TeX("$\\hat{\\mu}$")) + 
   labs(linetype="Method",color="Method",shape="Method") + 
   theme_bw(base_size = 12, base_family = "Helvetica") + ylim(g_limit,57.5) +
@@ -500,12 +500,12 @@ g + scale_shape_manual(label=MethodLabels, values=c(16,17,15,18,6,3,4,0),guide=g
   scale_color_discrete(label=MethodLabels,guide=guide_legend(ncol=colnumlegend) )+
   scale_size_manual(label=MethodLabels, values=c(2,2,2,3,2,3,3,2), guide=guide_legend(ncol=colnumlegend))+
   scale_linetype_discrete(label=MethodLabels, guide=guide_legend(ncol=colnumlegend) )+
-  scale_x_continuous(breaks=seq(1.02,1.4,0.02),lim=c(1.12,1.24))+
+  scale_x_continuous(breaks=seq(1.01,1.4,0.02),lim=c(1.07,1.23))+
   scale_y_continuous(breaks=c(seq(20,60,2)),lim=c(g_limit,52))+
   ylab(TeX("\\hat{\\underline{d}}")) + xlab(TeX("$\\hat{\\mu}$")) + 
   labs(linetype="Method",color="Method",shape="Method") + 
   theme_bw(base_size = 12, base_family = "Helvetica") + 
-  theme(#legend.position="none",
+  theme(legend.position="none",
         legend.title = element_text(size = 10), 
         legend.text  = element_text(size = 10),
         legend.box = "vertical",
@@ -529,7 +529,7 @@ df8$gammaLabel=
   factor(df8$gamma_test, labels=sprintf("gamma~'='~%.2f",as.numeric(unique(sort(df8$gamma_test)))))
 df8$deltaLabel=
   factor(df8$delta_test, labels=sprintf("delta~'='~%.2f",as.numeric(unique(sort(df8$delta_test)))))
-df8=add_zero_dose(df8)
+#df8=add_zero_dose(df8)
 g_limit=45
 df8_new=snip_df(df8,g_limit,"test")
 temp=df8_new%>%filter(g_test<g_limit,mu_test>1)%>%mutate(g_test=NaN);
@@ -573,7 +573,7 @@ ggsave(fig_name,height=5,width=7)
 
 delta_val=0.02
 gamma_val=0.04
-g_limit=48
+g_limit=50
 df8b=df8[df8$delta_test==delta_val & df8$gamma_test==gamma_val,]
 df8b_new=snip_df(df8b,g_limit,"test")
 df8b_new$Method=ordered(df8b_new$Method)
@@ -582,8 +582,8 @@ df8b_marker=df_choose_marker(df8b,"test")%>%filter(g_test>=g_limit)
 colnumlegend=1
 g <- ggplot(data=df8b_new) 
 g <- g + geom_point(data=df8b_marker,aes(x=mu_test,y=g_test,color=Method,shape=Method,size=Method)) + geom_line(aes(x=mu_test,y=g_test,color=Method,linetype=Method)) 
-g +    scale_x_continuous(breaks=seq(1.05,1.4,0.025),lim=c(1.075,1.2))+
-  scale_y_continuous(breaks=c(seq(40,60,2)),lim=c(g_limit,56))+
+g +    scale_x_continuous(breaks=seq(1.1,1.4,0.02),lim=c(1.1,1.24))+
+  scale_y_continuous(breaks=c(seq(40,60,1)),lim=c(g_limit,56))+
   scale_shape_manual(label=MethodLabels,  values=c(16, 17, 15,18,6,3,4,2,8,5,7,9,0),guide=guide_legend(ncol=colnumlegend) )+
   scale_color_discrete(label=MethodLabels,  guide=guide_legend(ncol=colnumlegend) )+
   scale_size_manual(values=c(2,2,2,3,2,3,3,2,2,2,2), label=MethodLabels, guide=guide_legend(ncol=colnumlegend))+

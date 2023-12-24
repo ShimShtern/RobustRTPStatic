@@ -13,7 +13,7 @@ using SortingAlgorithms
 using Statistics
 using DataStructures
 import LightGraphs.Parallel
-using FileIO, JLD2
+using FileIO, JLD2, DelimitedFiles
 using Printf
 
 const __ALLCONS_NO_GENERATION = false #true adds all constraint, false generate constraints
@@ -130,14 +130,45 @@ function initGlobals(Din,firstIndices)
 end
 
 
-function GetSol(m)
-	basicXIdxs, basicDeltaIdxs = getBasisXandDelta(m)
+function GetSol!(m)
+	gvalue=value(m[:g])
 	dbarVarDict=m[:dbar]
-	XValue=value.(m[:x])
+	xValue=value.(m[:x])
 	dbarValues=[value(dbarVarDict[i]) for i in keys(dbarVarDict)]
 	dbarDict=Dict(keys(dbarVarDict) .=> dbarValues)
-	gvalue=value(m[:g])
-	Sol = Solution(gvalue,basicXIdxs,collect(basicDeltaIdxs),XValue,dbarDict)
+	IsBasic=(xValue.>BASIS_EPS)
+	basicXIdxs=[]
+	basicDeltaIdxs=[]
+	if sum(IsBasic)>0
+		try
+			baseX = MOI.get.(m, MOI.VariableBasisStatus(), x)
+			basicXIdxs = findall(x->x == MOI.BASIC,baseX)
+		catch
+			println("catch 1")
+			basicXIdxs = findall(IsBasic)
+		end
+		#baseX = MOI.get(model, MOI.ConstraintBasisStatus(), LowerBoundRef(x))
+		#basicXIdxs = findall(x->x == MOI.NONBASIC,baseX) # nonbasic LB constraint means basic variable
+    	#	dbar = m[:dbar] = Dict()
+  		basicDeltaIdxs = SortedSet{Int64}()
+		try
+			for (key,val) in dbarVarDict
+				baseDelta = MOI.get(m, MOI.VariableBasisStatus(), val)
+				if baseDelta == MOI.BASIC
+					insert!(basicDeltaIdxs,key)
+				end
+			end
+		catch
+			println("catch 2")
+			for (key,val) in dbarDict
+				if (val)>BASIS_EPS
+					insert!(basicDeltaIdxs,key)
+				end
+			end
+		end
+	end
+	#basicXIdxs, basicDeltaIdxs = getBasisXandDelta!(m,xValue,dbarValues)
+	Sol = Solution(gvalue,basicXIdxs,collect(basicDeltaIdxs),xValue,dbarDict)
 	return Sol
 end
 
@@ -162,6 +193,7 @@ function initModel(Din, firstIndices, t, tmax, dvrhs, β, phi_u_n, λ=[0;0], ϕ_
 
 	MOI.set(m, MOI.Silent(), true)
 	MOI.set(m, MOI.NumberOfThreads(), 1)
+	set_optimizer_attribute(m, "Method", -1)
 	#set_optimizer_attribute(m,"CPX_PARAM_LPMETHOD",4)
 	#set_optimizer_attribute(m,"CPX_PARAM_BAREPCOMP",1e-4)
 	if __SOLVER_DEBUG > 0
@@ -360,7 +392,7 @@ function solveModel!(m,firstIndices)
     return m
 end
 
-function getValidBetaInterval(m, t, tmax)
+function getValidBetaInterval!(m, t, tmax)
 	println("In getValidBetaInterval..., dual_status(m): ", dual_status(m))
 	global _V
 	dbarDic = m[:dbar]
@@ -960,6 +992,9 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	push!(ResultsArray,[0,betaLb,LBg,devNum[idx],devSum[idx],LBx,time])
 
 	##
+	println("##################")
+	println("Perform initial bi-section")
+	println("##################")
 	#set_optimizer_attribute(m,"Method",4)
 	βLb, βUb, ResultsArrayTemp = betaBisection!(m, betaLb, betaUb, dvrhs, Din, firstIndices, t, tmax, μ, phi_u_n, phi_b_n, dists, L, violNumLb)
 	append!(ResultsArray,ResultsArrayTemp)
@@ -968,13 +1003,14 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	for i in keys(dbar)
 		set_objective_coefficient(m, dbar[i], -βLb)
 	end
-	set_optimizer_attribute(m,"Method",5)
+	set_optimizer_attribute(m,"Method",1)
 	set_optimizer_attribute(m,"OutputFlag",1)
+	solveModel!(m,firstIndices)
 	time1=@elapsed m, htCn, homCn = @time maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βLb,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
 	time2=@elapsed solveModel!(m,firstIndices)
 	time=time1+time2
 	x= value.(m[:x])
-	SolNew=GetSol(m)
+	SolNew=GetSol!(m)
 	devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
 	dbar = m[:dbar]
 	new_num_dbar=length(dbar)
@@ -984,6 +1020,11 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 	βnew = βLb
 	βprev= βLb
     iter = 0
+
+	println("##################")
+	println("Parametric iterations")
+	println("##################")
+
 	while devVecNew[idx] >= dvrhs[idx] || βnew==βprev
 		iter+=1
         BETA_EPS = 0
@@ -991,14 +1032,16 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		for i in keys(dbar)
 			set_objective_coefficient(m, dbar[i], -βnew)
 		end
-		time1=@elapsed m, htCn, homCn =  maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βnew,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		time1 = @elapsed m, htCn, homCn =  maxmin_twostage_subprob.robustCuttingPlaneAlg!(Din,firstIndices,t,tmax,[],βnew,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m)
+		solveModel!(m,firstIndices)
 		dbar = m[:dbar]
 		new_num_dbar=length(dbar)
-		x=value.(m[:x])
-		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(x,t,tmax) # function that returns deviation vector with dimension of OAR num
+		xx=value.(m[:x])
+		devVecNew, devSumNew = maxmin_twostage_subprob.evaluateDevNumNoDbar(xx,t,tmax) # function that returns deviation vector with dimension of OAR num
 		NumConstNew=num_constraints(m,AffExpr, MOI.LessThan{Float64})+num_constraints(m,AffExpr, MOI.GreaterThan{Float64})
 		println(termination_status(model))
-		time2=@elapsed SolNew=GetSol(m)
+
+		time2=@elapsed SolNew=GetSol!(m)
 		time=time+time1+time2
 		if (new_num_dbar>old_num_dbar || NumConstNew>NumConstOld)
 			time1=@elapsed is_adj=basesAdjacent(Sol1,Sol2,m)
@@ -1011,8 +1054,7 @@ function parametricSolveIncreasing(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, ph
 		if βnew!=βprev
 			push!(ResultsArray,[2,βnew,value(m[:g]),devVecNew[idx], devSumNew[idx],value.(m[:x]),time])
 		end
-
-		time=@elapsed β1,β2 = maxmin_twostage_subprob.getValidBetaInterval(m,t,tmax)
+		time=@elapsed β1,β2 = maxmin_twostage_subprob.getValidBetaInterval!(m,t,tmax)
 		βLbB = -β2
 		βUbB = -β1
 		βprev = βnew
@@ -1042,25 +1084,37 @@ function CVAR_solve(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L
 	xVar = m[:x]
 	q=length(t)
 	@variable(m,dvvar[1:q])
-	@constraint(m,con[i=1:q],dvvar[i]<=t[i])
+	@constraint(m,con[i=1:q],t[i]*dvrhs[i]-dvvar[i]*dvrhs[i]>=0)
 
 	isinit=fill(true,q)
 	w = m[:w] = Dict()
 	𐤃 = m[:𐤃] = Dict()
 	indices = fill(Int[],length(t))
 	if method=="iter"
-		threshold=t
 		m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
-	elseif method=="all"
-		threshold=-1*t #just a negative number, adds all CVAR variables in the first iteration
+		threshold=t
+	elseif method=="all_init"
+		m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+		threshold=-1000*t #just a negative number, adds all CVAR variables in the first iteration
+	elseif method=="all_no_init"
 		solveModel!(m,firstIndices)
+		threshold=-1000*t #just a negative number, adds all CVAR variables in the first iteration
 	end
 	iter = 0
 	xx_new = value.(xVar)
 	xx_old = xx_new.-1
-	while norm(xx_new-xx_old)>1e-10
+	cost_new=objective_value(m)+1
+	cost_old=objective_value(m)
+	dvvarVal_new=t
+	dvvarVal_old=t.-1
+	total_added = 0
+	while norm(xx_new-xx_old)>1e-10 || cost_new-cost_old>1e-10 || norm(dvvarVal_new-dvvarVal_old)<1e-10
 		d = Din*xx_new
 		xx_old = xx_new
+		cost_old = cost_new
+		dvvarVal_old = dvvarVal_new
+		dvvarVal_new=value.(m[:dvvar])
+		@show dvvarVal_new
 		iter = iter + 1
 		println("start iteration ",iter)
 		for i=1:q
@@ -1068,18 +1122,23 @@ function CVAR_solve(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L
 				OARsize=firstIndices[i+1]-firstIndices[i]
 				if isinit[i]
 					indices[i] = firstIndices[i]:firstIndices[i+1]-1
+					isinit[i] = false
 				else
-					indices[i] = setdiff(indices[i],keys(w))
+					println("number left ", length(indices[i]))
 				end
 				println("adding varibales and constraints")
-				added_indices=findall(d[indices[i]].>threshold[i])
+				println(dvvarVal_new[i])
+				added_indices=findall(d[indices[i]].>dvvarVal_new[i])
+				indices[i] = setdiff(indices[i],indices[i][added_indices])
+				@show length(indices[i])
+				total_added += length(added_indices)
 				for j=added_indices
 					𐤃[j] = @expression(m, sum(Din[j,k]*xVar[k] for k in Din[j,:].nzind))
 					w[j] = @variable(m,lower_bound=0)
 					@constraint(m,w[j]>=𐤃[j]-dvvar[i])
-					set_normalized_coefficient(con[i],w[j],1/dvrhs[i])
+					set_normalized_coefficient(con[i],w[j],-1)
 				end
-				println("added ",length(added_indices)," constraints")
+				println("added ",length(added_indices)," constraints, total of ",total_added)
 			end
 		end
 		#solveModel!(m,firstIndices)
@@ -1087,7 +1146,10 @@ function CVAR_solve(Din,firstIndices,t,tmax,dvrhs,μ, phi_u_n, phi_b_n, dists, L
 		#dvvarvalue=value.(m[:dvvar])
 		println("Start resolve")
 		m, htCn, homCn = @time robustCuttingPlaneAlg!(Din,firstIndices,tmax,tmax,[],0,μ,phi_u_n,phi_b_n,dists,[0;0],0,L,m) #,true)
+		solveModel!(m)
+		xVar = m[:x]
 		xx_new = value.(xVar)
+		cost_new=objective_value(m)
 		println("End resolve")
 	end
 	return m, htCn, homCn
