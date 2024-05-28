@@ -2,15 +2,12 @@
 MAXPROCS=9
 
 for mu in 1.1
-#{1.05,1.1,1.15,1.2}
-#,1.25}
 do
 	for gamma in {0,1,2,3,4,5}
 	do
 		gamma_step=0.01
 		gamma_new=$(echo $gamma*$gamma_step | bc)
 		for delta in {0,1,2,3,4,5,6,7,8,9,10}
-		#{0..10}
 		do
 			delta_step=0.01
 			delta_new=$(echo $delta*$delta_step | bc)

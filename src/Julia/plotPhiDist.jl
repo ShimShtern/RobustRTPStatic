@@ -16,6 +16,7 @@ using LinearAlgebra
 using LaTeXStrings
 using JuMP, Gurobi
 
+#relative paths to current file
 CodeDir = ".\\"
 DataDir ="..\\..\\data\\"
 PlotDir = ".\\ResultsFiles\\Plots\\"
@@ -36,7 +37,7 @@ end
 include(string(CodeDir, "maxmin_twostage_subprob.jl"))
 
 bLOAD_FROM_FILE = false
-bLOAD_DATAFRAME_FROM_FILE = true
+bLOAD_DATAFRAME_FROM_FILE = false
 CREATE_PLOTS = true
 
 file_name_data_frame =
