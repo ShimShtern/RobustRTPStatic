@@ -1,7 +1,3 @@
-*.jld2
-*.mat
 *.xlsx
 *.csv
 *.txt
-*.png
-src/Julia/ServerCode/

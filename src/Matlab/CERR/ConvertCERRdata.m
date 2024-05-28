@@ -1,17 +1,25 @@
 global planC
 
-%fname="C:\Users\Shim\Dropbox (MIT)\technion\research\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient4\MergedPTCT_structs_20210428_withExt_0102_withDosimetry2.mat";
-dir='C:\Users\Shimrit\Dropbox (MIT)\technion\research\Robust Radio Therapy (All)\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient1\';
-fname=[dir,'Patient1_Visit1_Merged_ptv_brain_withExt_withTelemetry_16beams.mat'];
+%relative path to location of this file
+data_dir='../../data/';
+%Use for Patient 1
+Patient="Patient1"
+dir=[data_dir,Patient,"/"]
+fname=[dir,"Patient1_Visit1_Merged_ptv_brain_withExt_withTelemetry_16beams.mat'];
+output_fname=[data_dir,"Patient1_Visit1_16beams_refpointpercent50_notincludingdeadvoxels_20230905.mat"];
 StructNumPTV=4;
 StructNumBrain=3;
 StructNumExterior=5;
 
-%fname = "C:\Users\Shim\Dropbox (MIT)\technion\research\Robust Radio Therapy (All)\Robust Radiotherapy\data\ACRIN-FMISO-Brain\Segmented data\Patient4\Patient4_Visit1_MergedPTCT_structs_20210428_withExt_0102_withDosimetry_16bm.mat";
-%StructNumPTV=4;
-%StructNumBrain=5;
-%StructNumChiasm=6;
-%StructNumExterior=7;
+%Use for Patient 4
+Patient="Patient4"
+dir=[dir,Patient,"/"]
+fname = [data_dir,"Patient4/Patient4_Visit1_MergedPTCT_structs_20210428_withExt_0102_withDosimetry_16bm.mat"];
+output_fname=[data_dir,"Patient4_Visit1_16beams_refpointpercent50_value26_notincludingdeadvoxels_20230719.mat"];
+StructNumPTV=4;
+StructNumBrain=5;
+StructNumChiasm=6;
+StructNumExterior=7;
 
 
 planC = loadPlanC(fname);
@@ -66,5 +74,4 @@ J((ntriplets+1):end)=[];
 X((ntriplets+1):end)=[];
 neighbors_Mat=sparse(I,J,X,T_voxel_num,T_voxel_num);
 
-save([dir,'Patient1_Visit1_16beams_refpointpercent50_notincludingdeadvoxels_20230905.mat'],'Dij','V', 'neighbors_Mat', 'omf_Vec','-v7.3')
-%save('Patient4_Visit1_16beams_refpointpercent50_value26_notincludingdeadvoxels_20230719.mat','Dij','V', 'neighbors_Mat', 'omf_Vec','-v7.3')
+save(output_fname,'Dij','V', 'neighbors_Mat', 'omf_Vec','-v7.3')

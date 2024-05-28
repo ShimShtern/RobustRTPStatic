@@ -2,6 +2,7 @@ library(latex2exp)
 library(ggplot2)
 library(tidyr)
 library(tidyverse)
+library(ggrepel)
 library("rstudioapi")                                 # Load rstudioapi package
 
 setwd(dirname(getActiveDocumentContext()$path))       # Set working directory to source file location
@@ -171,7 +172,7 @@ g <- ggplot(data=df5new)
 g <- g + geom_point(data=df5marks, aes(x=mu_test,y=g_test,color=Method,shape=Method)) + geom_line(aes(x=mu_test,y=g_test,color=Method,linetype=Method)) 
 #dfnommarks
 g <- g + geom_point(data=dfnommarks,aes(x=mu_test,y=g_test,color=Method,shape=Method)) + geom_line(data=dfnomnew,aes(x=mu_test,y=g_test,color=Method,linetype=Method)) 
-g + scale_shape_manual(label=MethodLabels,values=c(16, 17, 15,18,6,3,4,2,8,5,7))+
+g <- g + scale_shape_manual(label=MethodLabels,values=c(16, 17, 15,18,6,3,4,2,8,5,7))+
   scale_color_discrete(label=MethodLabels )+
   #scale_size_manual(values=c(2,2,2,3,2,3,3,2), label=MethodLabels, guide=guide_legend(ncol=legendcolnum))+
   scale_linetype_discrete(label=MethodLabels)+
@@ -189,6 +190,7 @@ g + scale_shape_manual(label=MethodLabels,values=c(16, 17, 15,18,6,3,4,2,8,5,7))
         #legend.margin = margin(),
         legend.direction="vertical", 
         strip.background = element_blank())
+g
 outputFile=sprintf("./%s/%s",Folder,"Patient4_Visit1_gamma1robloss.png")
 ggsave(outputFile,width=3.9,height=2.7,units=c("in"))
 
@@ -202,7 +204,7 @@ for (gamma_val in c(0.02,0.04)){
   g <- ggplot(data=df4new) #+ geom_point(aes(group=delta,y=g_g_geq_0,color=as.factor(delta))) + geom_line(aes(group=delta,y=g_g_geq_0,color=as.factor(delta),linetype=as.factor(delta))) + ylab(TeX("\\underline{d}")) + xlab(TeX("$\\mu")) #+ xlim(0.01,0.11) + ylim(72.5,80.0) #+ ylab('g-test') + xlab(TeX("$\\delta"))
   g <- g + geom_point(data=df4marks,aes(group=delta,x=mu_test,y=g_test,color=Method,shape=Method)) + geom_line(aes(group=delta,x=mu_test,y=g_test,color=Method,linetype=Method))
   g <- g + geom_point(data=dfnommarks,aes(x=mu_test,y=g_test,color=Method,shape=Method)) + geom_line(data=dfnomnew,aes(x=mu_test,y=g_test,color=Method,linetype=Method)) 
-  g +   scale_x_continuous(breaks=seq(1.03,1.18,0.02),lim=c(1.07,1.15))+
+  g <- g +   scale_x_continuous(breaks=seq(1.03,1.18,0.02),lim=c(1.07,1.15))+
     scale_y_continuous(lim=c(gtest_limit,57.5))+
     scale_shape_manual(label=MethodLabels,values=c(16, 17, 15,18,6,3,4,2,8,5,7))+
     scale_color_discrete(label=MethodLabels )+
@@ -217,6 +219,7 @@ for (gamma_val in c(0.02,0.04)){
         legend.background = element_rect(color="black"),
         legend.direction="vertical", 
         strip.background = element_blank())
+  g
   outputFile=sprintf("./%s/%s%.2f%s",Folder,"Patient4_Visit1_gamma",gamma_val,"robloss.png")
   ggsave(outputFile,width=2.5,height=2.7,units=c("in"))
 }
