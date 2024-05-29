@@ -1,5 +1,5 @@
 module maxmin_test_liver
-include("maxmin_twostage_subprob.jl")
+include("maxmin_twostage_subprob_nogen2.jl")
 
 using MAT
 using JuMP
@@ -7,17 +7,16 @@ using SparseArrays
 using FileIO, JLD2
 using Printf
 
-const bLOAD_FROM_FILE = false
-const bLOAD_FROM_FILE_gamma = false
-const bLOAD_FROM_FILE_projection = false
-const bSAVE_FILES = false
-const bSAVE_DISTORPROJ_FILES = false
+const bLOAD_FROM_FILE = false #true
+const bLOAD_FROM_FILE_gamma = false #true
+const bLOAD_FROM_FILE_projection = false #true
+const bSAVE_FILES = true
+const bSAVE_DISTORPROJ_FILES = true
 
-const MAX_HOMOGEN_CONSTR = 4000 #2000000000 #4000 #2000 #2000000000  #4000000  #200000000 # 200 #000000
+MAX_HOMOGEN_CONSTR = 20000 #4000 #2000 #2000000000 #4000 #2000 #2000000000  #4000000  #200000000 # 200 #000000
 
 file = matopen("../../Data/Liver/liverEx_2.mat")
 #const ρ = [0.7; 1; 1] #0.5]# 1]
-#const ρ = [1; 0.5; 1] #0.5]# 1]
 const ρ = [1; 1; 1]
 
 # In the Liver data the 1st OAR is liver, 2nd OAR is heart
@@ -32,16 +31,29 @@ const t = tmax
 #Mean Dose(Gy) ≤ 21 Gy ≤ 25 Gy > 25 Gy
 #V30 ≤ 30% ≤ 40% > 40%
 
-#λ=0 #unused reg param
+#JULIA_NUM_THREADS=2
+#OPENBLAS_NUM_THREADS=2
+#OMP_NUM_THREADS=2
+
 β = 0#0.01
-μ = 1.3 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
-δ = 0.05 #0.1  #0.1 #0.01:0.01:0.1
-gamma_const = 0.15  #1 #0.15
+μ = 1.15 #1.45 #1.45 #1.25 #1.1  # 1.1 is for physical dose, should be higher for biological
+δ = 0 #0.04 #0.05 #0.1  #0.1 #0.01:0.01:0.1
+gamma_const = 1 #0.04 #1 #0.15
+
+homogenConsPerVoxel = 5
+homogenConsPerVoxel = 4000
+
+if Sys.islinux()
+    MAX_HOMOGEN_CONSTR = parse(Int64,ARGS[1])
+    homogenConsPerVoxel = parse(Int64,ARGS[2])
+    oarConsPerOrganInit = parse(Int64,ARGS[3]) 
+end
+
 max_γ = 0.05 + gamma_const
 max_dist = 10
-α = [0.0138749; 0.0218827; -0.000604924]
+α = [0.0210921+gamma_const; 0.0286365;  0.00843587]#[0.0138749; 0.0218827; -0.000604924]
 gamma_func(x) =
-    (x <= max_dist) * (x > 0) * (α' * [1; x; x^2]) + (x > max_dist) * max_γ #0.04
+    (x <= max_dist) * (x > 0) * (α' * [1; log(x); x]) + (x > max_dist) * max_γ #0.04
 γ = read(file, "neighbors_Mat")
 ϕ = read(file, "omf_Vec")
 
@@ -53,12 +65,10 @@ firstIndices = []
 dvrhs = []
 
 D_file = "D_Liv_formatted.jld2"
-#D_file="Patient4_Visit1_D_formatted.jld2"
 if bLOAD_FROM_FILE
     D = FileIO.load(D_file, "D")
     firstIndices, dvrhs = FileIO.load(D_file, "firstIndices", "dvrhs")
 else
-    #file = matopen("Patient4_Visit1_16beams_withdeadvoxels.mat") #changed from 13 since it did not cover the PTV
     inD = read(file, "Dij")
     V = read(file, "V")
     close(file)
@@ -172,11 +182,11 @@ phi_u_n = []
 phi_b_n = []
 dists = []
 file_name_gamma = @sprintf(
-    "./RS_Dists/Patient4_Visit1_Gamma_dist_new_%1.3f.jld2",
+    "./RS_Dists/liver_dist_new_%1.3f.jld2",
     gamma_const
 )
 file_name_proj = @sprintf(
-    "./Projections/PPatient4_Visit1_rojection_new_%1.3f_%1.3f.jld2",
+    "./Projections/liver_projection_new_%1.3f_%1.3f.jld2",
     gamma_const,
     δ
 )
@@ -223,7 +233,8 @@ time_prof = @elapsed model, htCn, homCn =
         dists,
         [0; 0],
         ϕ,
-        MAX_HOMOGEN_CONSTR,
+        MAX_HOMOGEN_CONSTR,  nothing, false,
+	homogenConsPerVoxel, oarConsPerOrganInit
     )
 #time_prof=@elapsed model = maxmin_twostage_subprob.parametricSolveIncreasing(D,firstIndices,t,tmax,dvrhs,β,μ,phi_u_n, phi_b_n, dists,200)
 #time_prof=@elapsed model,βvec,objValVec,dvCntMat = maxmin_twostage_subprob.parametricSolveDecreasing(D,firstIndices,t,tmax,dvrhs,μ,phi_u_n, phi_b_n, dists,200)
