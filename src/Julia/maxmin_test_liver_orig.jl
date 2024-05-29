@@ -15,7 +15,7 @@ const bSAVE_DISTORPROJ_FILES = false
 
 const MAX_HOMOGEN_CONSTR = 4000 #2000000000 #4000 #2000 #2000000000  #4000000  #200000000 # 200 #000000
 
-file = matopen("liverEx_2.mat")
+file = matopen("Data/Liver/liverEx_2.mat")
 #const ρ = [0.7; 1; 1] #0.5]# 1]
 #const ρ = [1; 0.5; 1] #0.5]# 1]
 const ρ = [1; 1; 1]
