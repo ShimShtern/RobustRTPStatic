@@ -1,3 +1,6 @@
 *.txt
 *.RData
 *.Rhistory
+*.matlab
+*.jld2
+*.bak
