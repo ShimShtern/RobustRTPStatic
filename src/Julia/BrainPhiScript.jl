@@ -11,8 +11,8 @@ println("Now solving with min phi bar = ", minimum(phi_bar), " min phi_under = "
 phi_u_n=[]
 phi_b_n=[]
 dists=[]
-file_name_gamma=@sprintf("./Data/RS_Dists/%s_%s_Gamma_dist_new_%1.3f.jld2",Patient,Visit,gamma_const)
-file_name_proj=@sprintf("./Data/Projections/%s_%s_Projection_new_%1.3f_%1.3f.jld2",Patient,Visit,gamma_const,δ)
+file_name_gamma=@sprintf("%s/%s/RS_Dists/%s_%s_Gamma_dist_new_%1.3f.jld2",JDLDataDir,Patient,Patient,Visit,gamma_const)
+file_name_proj=@sprintf("%s/%s/Projections/%s_%s_Projection_new_%1.3f_%1.3f.jld2",JDLDataDir,Patient,Patient,Visit,gamma_const,δ)
 if bLOAD_FROM_FILE_gamma
     dists = FileIO.load(file_name_gamma,"dists")
 else

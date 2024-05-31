@@ -11,9 +11,9 @@ using FileIO, JLD2
 using Printf
 
 
-const bLOAD_FROM_FILE = true
-const bLOAD_FROM_FILE_gamma = true
-const bLOAD_FROM_FILE_projection = true
+const bLOAD_FROM_FILE = false
+const bLOAD_FROM_FILE_gamma = false
+const bLOAD_FROM_FILE_projection = false
 const bSAVE_FILES = false
 const bSAVE_DISTORPROJ_FILES = false
 

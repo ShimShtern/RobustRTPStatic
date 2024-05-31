@@ -4,13 +4,13 @@
  #const t= [60; 54; 100]
  #const tmax = [62; 54; 100]
 
- MatDataDir = "../../Data"
+ MatDataDir = "./Data"
  JDLDataDir = "./Data"
  Patient = "Patient4"
  Visit = "Visit1"
  extra = "refpointpercent50_value26"
- gamma_coef_file_name=@sprintf("./%s/%s_%s_%s_Gamma_dist_func.jld2",Patient,Patient, Visit, extra)
  Basic_file=@sprintf("%s/%s/%s_%s_16beams_%s_notincludingdeadvoxels_20230719.mat",MatDataDir,Patient,Patient,Visit,extra)
+ gamma_coef_file_name=@sprintf("%s/%s/%s_%s_%s_Gamma_dist_func.jld2",JDLDataDir,Patient,Patient, Visit, extra)
  RegFileName=@sprintf("%s/%s/%s_%s_%s_Gamma_dist_func.jld2",JDLDataDir,Patient,Patient,Visit,extra)
  D_file=@sprintf("%s/%s/%s_%s_D_formatted.jld2",JDLDataDir,Patient,Patient,Visit)
 

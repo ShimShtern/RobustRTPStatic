@@ -7,18 +7,19 @@ using XLSX
 using SparseArrays
 using FileIO, JLD2
 using Printf
-bLOAD_FROM_FILE=true
+bLOAD_FROM_FILE=false
 bSAVE_FILES = false
-bLOAD_FROM_FILE_gamma=true
-bLOAD_FROM_FILE_projection = true
+bLOAD_FROM_FILE_gamma=false
+bLOAD_FROM_FILE_projection = false
 bCompareToOther=true
 bOARStatistics=false
 
+Patient="Patient4"
 #solutions imput and output path
-InputXLS="./ResultsFiles/20230906_no_dose_vol_no_zeros.xlsx" #no_dose_vol_b_no_zeros.xlsx"#"./ResultsFiles/nominal_solutions.xlsx"#"./ResultsFiles/no_dose_vol_box.xlsx"#"./ResultsFiles/no_dose_vol_b_no_zeros.xlsx"#"no_dose_vol.xlsx" #
-InputSheet="no_dose_vol"#"nominal_solutions"#"no_dose_vol_box"#"no_dose_vol"#"nominal_solutions"#
-summary_file_name="./ResultsFiles/20230919_solution_evaluation.txt"#"./ResultsFiles/solution_evaluation_nominal.txt" #"./ResultsFiles/solution_evaluation_box.txt"#"solution_evaluation_nominal.txt" #
-OAR_file_name="./ResultsFiles/20231109_solutionOAR_evaluation.txt"#"./ResultsFiles/solution_evaluation_nominal.txt" #"./ResultsFiles/solution_evaluation_box.txt"#"solution_evaluation_nominal.txt" #
+InputXLS=@sprintf("./ResultsFiles/%s/20230906_no_dose_vol_no_zeros.xlsx",Patient)
+InputSheet="no_dose_vol"
+summary_file_name=@sprintf("./ResultsFiles/%s/20230919_solution_evaluation.txt",Patient)
+OAR_file_name=@sprintf("./ResultsFiles/%s/20231109_solutionOAR_evaluation.txt",Patient)
 
 
 ρ = [0.99;1;1]#[0.99 ; 1; 1]
@@ -76,7 +77,7 @@ XLSX.openxlsx(InputXLS,mode="r") do xf
 					#	println(Ɣ)
 					#	continue
 					#end
-					for δ_test in 0.12:0.02:0.14 #δ_start[gamma_const]:0.01:δ_end#δ_origin#
+					for δ_test in 0.02:0.02:0.14 #δ_start[gamma_const]:0.01:δ_end#δ_origin#
 						#if δ_origin!=δ_test && δ_test!=0 && Ɣ_origin!=1
 						#	continue
 						#end

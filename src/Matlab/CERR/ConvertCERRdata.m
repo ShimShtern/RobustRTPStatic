@@ -1,19 +1,19 @@
 global planC
 
 %relative path to location of this file
-data_dir='../../data/';
+data_dir='../../Julia/data/';
 %Use for Patient 1
-Patient="Patient1"
-dir=[data_dir,Patient,"/"]
-fname=[dir,"Patient1_Visit1_Merged_ptv_brain_withExt_withTelemetry_16beams.mat'];
+Patient="Patient1";
+dir=[data_dir,Patient,"/"];
+fname=[dir,'Patient1_Visit1_Merged_ptv_brain_withExt_withTelemetry_16beams.mat'];
 output_fname=[data_dir,"Patient1_Visit1_16beams_refpointpercent50_notincludingdeadvoxels_20230905.mat"];
 StructNumPTV=4;
 StructNumBrain=3;
 StructNumExterior=5;
 
 %Use for Patient 4
-Patient="Patient4"
-dir=[dir,Patient,"/"]
+Patient="Patient4";
+dir=[dir,Patient,"/"];
 fname = [data_dir,"Patient4/Patient4_Visit1_MergedPTCT_structs_20210428_withExt_0102_withDosimetry_16bm.mat"];
 output_fname=[data_dir,"Patient4_Visit1_16beams_refpointpercent50_value26_notincludingdeadvoxels_20230719.mat"];
 StructNumPTV=4;

@@ -11,9 +11,9 @@ using LinearAlgebra
 using Printf
 
 println("Start running")
-const bLOAD_FROM_FILE = true
-const bLOAD_FROM_FILE_gamma = true
-const bLOAD_FROM_FILE_projection = true
+const bLOAD_FROM_FILE = false
+const bLOAD_FROM_FILE_gamma = false
+const bLOAD_FROM_FILE_projection = false
 const bSAVE_FILES = false
 const bSAVE_DISTORPROJ_FILES = false
 
@@ -51,7 +51,7 @@ minPhysDose, PhysHom = evaluate_solution.CalculatePhysPerformance(d,firstIndices
 g_nominal, μ_nominal = evaluate_solution.CalculateNomPerformance(d,firstIndices,ϕ)
 violProp = evaluateOAR_solution.EvaluateOARSolution(d,firstIndices, t,tmax)
 EUD = evaluate_solution.EvaluateEUD(d,firstIndices)
-outfile="./ResultsFiles/CVAR.csv"
+outfile="./ResultsFiles/Patient4/CVAR.csv"
 open(outfile,"a") do io
     println(io,method,",",μ,",",δ,",",gamma_const,",",t,",",tmax,",",1 .- ρ,",",mu_calc,",",g,",",PhysHom,",",minPhysDose,",",time_prof,",",xx,",",μ_nominal,",",g_nominal,",", EUD,",",violProp')
 end

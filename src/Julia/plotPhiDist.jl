@@ -18,7 +18,7 @@ using JuMP, Gurobi
 
 #relative paths to current file
 CodeDir = ".\\"
-DataDir ="..\\..\\data\\"
+DataDir =".\\data"
 PlotDir = ".\\ResultsFiles\\Plots\\"
 ResultDir = ".\\data"
 #Patient = "Patient1" #for figure 1
